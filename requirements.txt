@@ -1,0 +1,7 @@
+# Shared dependencies for the first SFT experiment.
+# Install PyTorch separately: macOS and AMD ROCm need different builds.
+transformers==4.57.3
+trl==0.25.1
+datasets==4.4.1
+accelerate==1.12.0
+huggingface-hub==0.36.0

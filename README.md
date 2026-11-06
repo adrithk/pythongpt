@@ -1,24 +1,90 @@
 # PyDrithGPT
 
-Project roadmap, prepared November 5, 2026. This repository currently contains a plan; no training, benchmark evaluation, or hardware validation has been performed.
+Current context and handoff updated **November 6, 2026**. Read the current-status sections before the reference roadmap. Inspect the actual saved files before advising on the next code change; they may have advanced since this snapshot.
 
-Build a small Python coding model by post-training `Qwen/Qwen2.5-Coder-0.5B`. The first milestone is to complete and understand a small SFT + RL pipeline and save a reproducible version-zero model. Its measured performance becomes the baseline for future work. Improve the data and training recipe before adding more elaborate methods.
+## Project intent and agreed scope
 
-Start with the smaller [first SFT walkthrough](FIRST_SFT.md). Write code and prepare the experiment on the Mac, then run GPU training on the Windows PC through WSL2. SFT is the immediate task; RL follows after the saved SFT model works.
+Build a small model specializing in Python coding by post-training **`Qwen/Qwen2.5-Coder-0.5B` base**. The intended scale is hundreds of millions of parameters, not hundreds of billions. The long-term ambition is strong performance against similarly sized models, while retaining useful general assistant/instruction-following behavior.
 
-## First run: learn the process and establish v0
+The immediate goal is to **understand and complete a working SFT run**, save/reload the result, and establish a personal baseline. Basic execution-reward RL can follow afterward. There is **no first-run requirement to match Qwen Instruct**, reach a particular benchmark score, or implement advanced techniques. The Instruct checkpoint is a possible comparison, not the chosen starting checkpoint.
 
-Run this small experiment before pursuing competitive scores:
+The user ultimately chose **base + Python-focused mixed SFT**, rather than starting from Instruct. A mix with general instructions, such as Smol-SmolTalk, remains a later experiment. **For the current first implementation, the user explicitly chose only OpenCoder stage 2's `educational_instruct` subset.** Do not silently reintroduce general data or change the starting model.
 
-1. Prepare approximately 1,000–2,000 verified Python SFT examples, 100–300 easy RL problems with tests, and separate development/test sets of about 100 problems each. Keep related problem families in one split.
-2. Evaluate the base on the fixed held-out problems and save its answers.
-3. Perform one basic SFT run and save/reload the SFT checkpoint.
-4. Initialize from that checkpoint and perform a short execution-reward GRPO run, provisionally 50–100 updates. Use tasks with some passing and some failing samples so the reward supplies a useful learning signal.
-5. Evaluate the base, SFT, and SFT + RL checkpoints using the same held-out task information and scoring rules. Save the final checkpoint, configurations, data versions, raw answers, training logs, and results.
+The pipeline must process the **whole selected subset**, not train on one preview example or a hard-coded 16/32-example dataset. The user initially requested a small learning run, then clarified that the code should support the whole dataset. Separate dataset preparation from run duration: later, discuss an epoch versus a temporary update limit as a configuration choice. No final training duration or settings have been agreed yet.
 
-Completion means the pipeline works, both training stages run correctly, the final model can be reloaded and used, and the experiment can be reproduced. **There is no required benchmark score and no requirement to match Qwen Instruct.** A regression after RL is a useful recorded finding, provided the implementation and grader have been checked; preserve the SFT checkpoint too. If RL has no reward variation, diagnose that before treating the run as evidence about RL's effectiveness.
+Here, “whole dataset” means all rows of `educational_instruct`, not automatically all four stage-2 configurations. Other configurations are `evol_instruct`, `mceval_instruct`, and `package_instruct`. Their possible later use has been discussed; none is currently included. Stage 1/stage 2 are names from OpenCoder's recipe, not mandatory stages for this Qwen experiment.
 
-Qwen Instruct is an optional external reference for this first run. The larger datasets, benchmark suite, control experiments, and cloud budget below describe later expansion, not prerequisites for completing v0. Prefer doing v0 locally; use a small cloud fallback if hardware compatibility blocks a training stage.
+## Collaboration instructions for a new chat
+
+- **Teach one small step at a time.** Explain what the code does, why it is needed, what the user should change, and the expected result.
+- The user wants to **write the code and run experiments themselves**. Put small snippets in chat; do not generate full training scripts, install packages, download models, run training, or edit files by default.
+- Reading the current code to check progress is welcome. When a specific edit is explicitly requested, perform only that edit. This README update is specifically authorized; it does not authorize implementation work elsewhere.
+- Do not overwhelm the user with an entire file or many future implementation steps when they ask for the next step. A short overview is useful when requested, followed by one concrete action.
+- The user is learning Python alongside SFT. Explain lists, dictionaries, function parameters, return values, methods, iteration, and terminal commands where relevant. Do not assume the distinction between Python code and terminal commands is obvious.
+- When explaining an edit, identify exactly what to keep, remove, and replace in the saved file. Unsaved VS Code changes may differ from disk.
+- Do not restart setup, benchmarking, or unrelated theory every turn. Preserve progress. Do not interpret inspecting one row as a decision to train only on that row.
+- An earlier assistant overstepped by creating a complete starter implementation and downloading dependencies/model files. The user requested its removal; it was removed. Respect the hands-on workflow going forward.
+
+## Hardware, environments, and budget
+
+- Development machine: **M5 MacBook Air, 8-core GPU, 16 GB unified memory**, inspected locally. The user writes code, prepares data, and reviews results on this Mac.
+- Main intended local training machine: Windows PC with **AMD RX 9070 XT, 16 GB VRAM**. The user prefers WSL2/Ubuntu over installing native Linux. WSL/ROCm training has not been validated in this chat.
+- A first training experiment on the Mac's PyTorch MPS backend has also been discussed. Do not assume the user has definitively switched training to the Mac or that a full-parameter run fits its available memory; confirm the target before device-specific trainer settings.
+- A later final cloud run should aim to stay below approximately **$100**. This is not a requirement to spend cloud money now or a guarantee of a competitive score.
+- The intended project environment is **`.venv`**, using Python **3.12.14** when inspected. `.venvv` was an accidentally duplicated environment; the user was advised to keep `.venv` and remove the duplicate. Do not assume its deletion without checking.
+- Last environment inspection found all shared requirements installed and no dependency conflicts. PyTorch **2.15.0** was installed in both environments at that time; core library imports succeeded in `.venv`. This is a historical observation, not a current training compatibility test.
+- [requirements.txt](requirements.txt) pins shared packages: Transformers 4.57.3, TRL 0.25.1, Datasets 4.4.1, Accelerate 1.12.0, and Hugging Face Hub 0.36.0. PyTorch is installed separately for each platform. It can also be installed indirectly as a dependency; omitting it from this file does not prevent that.
+- Recreate environments on the PC; do not copy the Mac's `.venv`. Install the appropriate AMD PyTorch build inside WSL, then shared requirements, and verify the installed build still supports the GPU.
+- GitHub repository setup was completed by the user. Source/configuration belong in Git; model weights, data, caches, virtual environments, and training outputs are excluded by `.gitignore`. Do not commit or push without instruction.
+
+## Current saved implementation
+
+The project has been separated into **[init_prepare.py](init_prepare.py)** for preparation, **[init_inspect.py](init_inspect.py)** for checks on saved data, and **[init_trainsft.py](init_trainsft.py)** as an empty training placeholder. The former `tiny_initial_sft.py` was renamed to `init_prepare.py`; use the new names. Existing overlap-check code was moved into the inspection file, with loading from disk, rather than rebuilding preparation on every check. The user reports downloading the original model into **`models/qwen-base`** using Hugging Face CLI.
+
+As of this snapshot, the saved script:
+
+1. Imports `load_dataset` and `AutoTokenizer`.
+2. Loads `OpenCoder-LLM/opc-sft-stage2`, configuration `educational_instruct`, split `train`, **without streaming**, and prints the full example count.
+3. Loads the tokenizer from `models/qwen-base` with `local_files_only=True`.
+4. Sets `tokenizer.eos_token` to Qwen's existing **`<|im_end|>`** marker.
+5. Defines `format_example(example)`. It formats the row's **`instruction`** into a user prompt using `apply_chat_template(..., tokenize=False, add_generation_prompt=True)`. It creates a completion from the row's **`code`** plus the ending token, then returns a dictionary containing `prompt` and `completion`.
+6. Calls `coding.map(format_example, remove_columns=coding.column_names)` to create **`prepared` for every row**. It prints the prepared example count and column names.
+7. Saves `prepared` to `data/prepared-sft`, randomly splits with `test_size=0.01` and `seed=42`, and saves the resulting training/validation datasets to `data/sft-splits`. The library's `test` key is being used for validation.
+
+The preparation script currently prepares **text strings**, not training tensors. It does not load model weights, create a trainer, update weights, save a trained checkpoint, or execute the dataset's Python solutions/tests. The user has run preparation and reported **129 distinct identical completion strings shared across training and validation**. This is a known unresolved issue with the current random split. `init_inspect.py` reads the saved splits and reports that count without redoing preparation. `init_trainsft.py` is intentionally empty. Do not report that SFT has run or that the overlap has been fixed.
+
+Raw source fields observed by the user are `seq_id`, `instruction`, `output`, `code`, `entry_point`, and `testcase`. The first preview was a palindrome function. `output` can include explanation/formatted code; the current target uses `code` alone. Dropping source columns from `prepared` does not mutate the original `coding` object. Retain provenance/split IDs when expanding the pipeline.
+
+## Conversation-format explanation already established
+
+The user was confused about the missing explicit assistant dictionary in the new function. Explain the current prompt/completion design consistently:
+
+- **Prompt:** the user request wrapped in Qwen's template, ending with the assistant's starting header. `add_generation_prompt=True` adds that header; it does not generate an answer.
+- **Completion:** the reference Python solution followed by `<|im_end|>`.
+- Concatenating prompt and completion forms the complete conversation. The intended SFT loss applies to completion tokens only, including the ending marker.
+- `tokenize=False` returns readable text. Tokenization into token IDs comes later. A previously inspected single full conversation contained **97 tokens**; that count was only an illustration, not a training configuration or dataset size.
+- `format_example` defines the per-row transformation; `map` invokes it for all rows. `example` is the function parameter, not a global variable selecting a single training example.
+- `next(iter(coding))` used earlier returned the first row, not a random sample. It was a preview and has been removed from the current formatting path.
+- The user identified a long startup delay **between script start and completion of imports**, and accepted it. Do not keep redirecting the lesson to network/progress debugging unless a new issue occurs.
+- Editor formatting-on-save and unused-import warnings were discussed. Neither is evidence of failed package installation. Save VS Code edits before checking the on-disk file.
+
+## Next actions toward working SFT
+
+Continue from the saved formatting code, rather than replacing it with a full new script:
+
+1. Address the known 129 shared completion strings: teach the user how to group identical solutions before splitting so a solution's examples stay on one side. Keep all rows if possible, preserve reproducibility, and avoid mistaking 129 distinct solutions for 129 total overlapping examples.
+2. After the user implements the split correction and reruns preparation, use `init_inspect.py` to verify zero exact completion overlap. This does not establish that all semantic duplicates have been removed. Preserve the selected data and source identifiers.
+3. Choose a token-length policy and inspect lengths. Avoid silently cutting off target solutions. Keep the distinction between formatted strings, token IDs, and training labels clear.
+4. Confirm the training machine/device, then load the original base weights. For the installed TRL release, use prompt-completion data and explicit **completion-only loss**. Check the actual prompt/answer masking and stopping token on one batch before a full run; inspection is not a dataset-size restriction.
+5. Select learning rate, batch size, gradient accumulation, precision, memory-saving settings, and epoch/update budget together with the user. Earlier 4-update, 16-example, 1,000-example, and larger-dataset proposals are **not current fixed requirements**.
+6. Record a simple baseline, run SFT, inspect loss/runtime/memory, and save the model, tokenizer, configuration, dataset versions/split IDs, and results separately from the original base.
+7. Reload the trained checkpoint in a fresh process and compare held-out responses. Validation loss alone is not executable coding correctness. A low score does not invalidate the goal of understanding the process.
+
+Basic RL, full benchmark suites, advanced curation, teacher distillation, dataset mixtures, and staged training are future work. The user asked about these and received conceptual explanations, but they should not block the first working SFT pipeline.
+
+## Reference roadmap: earlier proposals, not immediate requirements
+
+The notes below preserve longer-term research ideas from the initial planning discussion. Their example counts, hyperparameters, hardware assumptions, and benchmark plans are **provisional references**. They must not override the current scope and collaboration instructions above. [FIRST_SFT.md](FIRST_SFT.md) is also an older walkthrough; its tiny dataset sizes and “scripts do not exist” status text are superseded by this handoff. Recheck time-sensitive software support and cloud prices before using those notes.
 
 ## Goal and comparison rules
 
