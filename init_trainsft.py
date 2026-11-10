@@ -3,7 +3,12 @@ from datasets import load_from_disk
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from trl import SFTConfig, SFTTrainer
 
-device = torch.device("mps")
+if not torch.cuda.is_available():
+    raise RuntimeError("PyTorch cannot see the PC GPU.")
+
+device = torch.device("cuda")
+print("GPU:", torch.cuda.get_device_name(0))
+print("ROCm version:", torch.version.hip)
 MAX_LENGTH = 512
 
 splits = load_from_disk("data/sft-splits")
@@ -38,7 +43,7 @@ device = torch.device("mps")
 model = AutoModelForCausalLM.from_pretrained(
     "models/qwen-base",
     local_files_only=True,
-    torch_dtype=torch.float32,
+    dtype=torch.float32,
     attn_implementation="sdpa",
 )
 
@@ -67,7 +72,8 @@ settings = SFTConfig(
     dataloader_pin_memory=False,
     logging_steps=10,
     logging_strategy="steps",
-    logging_steps=1,
+    eval_strategy="steps",
+    eval_steps=500,
     save_steps=500,
     save_total_limit=2,
     report_to="none",
@@ -83,3 +89,12 @@ trainer = SFTTrainer(
 )
 
 result = trainer.train()
+
+
+trainer.save_metrics("train", result.metrics)
+
+model.config.use_cache = True
+final_path = f"{settings.output_dir}/final"
+
+trainer.save_model(final_path)
+tokenizer.save_pretrained(final_path)

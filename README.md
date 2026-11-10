@@ -2,6 +2,35 @@
 
 Current context and handoff updated **November 6, 2026**. Read the current-status sections before the reference roadmap. Inspect the actual saved files before advising on the next code change; they may have advanced since this snapshot.
 
+## Current experiment plan — November 10, 2026
+
+This plan supersedes conflicting sequencing and status in the older November 6 snapshot below. The user writes the implementation and runs experiments; this update authorizes documentation only.
+
+1. **Initial local SFT (S1):** complete the first small learning/baseline run on the user's computer, save/reload it, and evaluate it. Keep the selected OpenCoder `educational_instruct` scope; “small” does not require reducing preparation to a handful of rows. Record reasonable settings rather than delaying this run for a large tuning search.
+2. **Simple RL (R1), starting from S1:** do the first tiny RL exercise only after that first local SFT run. The RL chat proposed GRPO with eight sorting-list training inputs, two held-out inputs, a parsed-list correctness reward, and about five updates. These are practice proposals, not completed work or fixed final settings. This checks the sampling → grading → update → save loop; list-answer correctness is not executable Python-program correctness. Check the grader on correct/incorrect answers and track mixed-reward groups and held-out outputs.
+3. **Larger, improved SFT (S2):** after the initial SFT/RL cycle, conduct a significantly larger and more carefully optimized SFT experiment. Build on the post-training roadmap: improve data quality and Python coverage, deduplicate and check contamination, retain provenance, consider verified teacher solutions and data mixtures, inspect sequence lengths, and tune major settings using validation data. These are research candidates, not an agreed final recipe. “Optimal SFT” is the experiment's working label, not a proven optimum. Record the starting checkpoint explicitly; for a clean recipe comparison, train S1 and S2 from the same original base. If S2 continues another checkpoint instead, report that lineage and its additional compute.
+4. **Comprehensive RL (R2), starting from S2:** research a more effective RL recipe later, then compare it with S2 alone. The RL chat recommended GRPO over PPO as a provisional default for verifiable coding rewards and the available budget; it did not establish a universally best algorithm. Final algorithm, reward design, task curriculum, rollout budget, and hyperparameters remain open. The older execution-reward roadmap below supplies candidates, not mandatory settings for the tiny practice run.
+
+### Comparisons throughout the project
+
+Preserve separate checkpoints for B0 (original base), S1 (initial SFT), R1 (S1 + simple RL), S2 (larger improved SFT), and R2 (S2 + comprehensive RL). Evaluate at every stage, including before and after each RL treatment.
+
+| Comparison | Question |
+| --- | --- |
+| B0 vs S1 | What did the first SFT change? |
+| S1 vs R1 | What did simple RL add? |
+| S1 vs S2 | How much does the improved SFT recipe help? |
+| R1 vs S2 vs R2 | How do initial SFT + simple RL, improved SFT alone, and improved SFT + comprehensive RL compare? |
+| S2 vs R2 | What does comprehensive RL add to improved SFT? |
+
+Use the same held-out coding tasks, grader, prompt format, decoding settings, and generation budget for comparable measurements. Keep validation for choosing settings and reserve an untouched test set for final comparisons; the current dataset key `test` serves as validation, not an independent final test. Keep benchmark problems out of training and reward development. Record correctness/pass rates, task counts, sample outputs, runtime, memory, training/rollout tokens, cost, seeds, model/data versions, and checkpoint lineage. Report unequal training budgets and changed recipes; cross-stage differences alone do not isolate the RL algorithm. Tiny sorting-task results should be reported separately from coding benchmarks. No improvement is assumed in advance.
+
+### Verified progress and source scope
+
+On November 10, the local `runs/initial-sft-check/final/model.safetensors` exists and `runs/initial-sft-check/train_results.json` records 61.5814 seconds and training loss 0.6273176551. The source chats identify this as a five-update Mac MPS check, not the completed larger PC run. No coding improvement follows from that loss alone. The user's next intended SFT run precedes R1; the earlier suggestion to immediately use this check checkpoint for RL is superseded by that order.
+
+Reviewed selectively: **“First tiny Python coding RL run”**, thread `01a1c39b-4983-7862-b956-012524da2dcd` (its two available turns, including GRPO/PPO advice), and **“Plan Qwen2.5-Coder post-training”**, thread `01a1ae3b-b6c1-78e3-b4d4-3bff120f9d8e` (latest relevant turns on handoff, validation/test, and first-run tuning). The existing roadmap preserves longer-term proposals; this was not an exhaustive history review. The November 10 user instruction supplies the authoritative experiment order. No RL completion or final optimized recipe has been verified.
+
 ## Project intent and agreed scope
 
 Build a small model specializing in Python coding by post-training **`Qwen/Qwen2.5-Coder-0.5B` base**. The intended scale is hundreds of millions of parameters, not hundreds of billions. The long-term ambition is strong performance against similarly sized models, while retaining useful general assistant/instruction-following behavior.
@@ -130,7 +159,7 @@ At $0.89/hour, $80 of GPU compute buys about 90 GPU-hours before other charges. 
 
 Estimate SFT time from total processed tokens divided by measured training tokens/second. Estimate RL time from a pilot that includes generation, grading, reference scoring, and optimization. Include idle/setup/evaluation time in the billed total. Configure checkpointing and a wall-time ceiling before the final cloud job. Reserve cleanup time before the spending ceiling. Paid teacher generation would be a separate cost unless explicitly allocated inside this budget.
 
-## Experiment sequence
+## Earlier experiment sequence (superseded by the current plan)
 
 | ID | Starting checkpoint | Treatment | What it measures |
 | --- | --- | --- | --- |

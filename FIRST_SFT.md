@@ -2,7 +2,9 @@
 
 Goal: understand supervised fine-tuning and produce a saved Python coding checkpoint from `Qwen/Qwen2.5-Coder-0.5B`. No required score. This is the SFT portion of v0; RL comes afterward.
 
-This file is a walkthrough for implementation. Training scripts, dependency locks, and prepared datasets do not exist yet, and the AMD setup has not been validated.
+Updated November 10, 2026: scripts, prepared data, and a saved five-update SFT check now exist. A completed full PC run and AMD training compatibility have not been verified here. Follow the [current experiment plan](README.md#current-experiment-plan--november-10-2026): finish the first local SFT, then tiny simple RL, then significantly larger/improved SFT, then comprehensive RL after further research. Preserve and compare checkpoints at each stage.
+
+The walkthrough below is historical reference. Its roughly 1,000-example suggestion is superseded by the selected whole `educational_instruct` preparation scope. Do not restart preparation or impose these example counts. Larger-data curation and extensive tuning belong to the later improved SFT experiment.
 
 ## 1. Use the Mac for development and WSL for training
 
