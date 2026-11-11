@@ -1,4 +1,4 @@
-# PyDrithGPT
+# PythonGPT
 
 Current context and handoff updated **November 6, 2026**. Read the current-status sections before the reference roadmap. Inspect the actual saved files before advising on the next code change; they may have advanced since this snapshot.
 
