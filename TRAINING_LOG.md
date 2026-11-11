@@ -37,3 +37,7 @@ For each run, record its identifier and purpose, date, starting model/checkpoint
 The user plans initial SFT on their computer before tiny simple RL, followed by significantly larger/improved SFT and later comprehensive RL after further research. Compare initial versus improved SFT, initial SFT + simple RL versus improved SFT versus improved SFT + comprehensive RL, and each RL checkpoint against its own SFT parent. See README for measurement controls and open recipe choices.
 
 Verified locally today: the saved initial check weights exist; its results record runtime **61.5814 seconds**, train loss **0.6273176551**, and epoch **0.0006844978**. Run date remains unspecified here; the source chats reviewed on November 10 report five updates on Mac MPS. These are training-process observations, not measured coding gains. The intended next local SFT and subsequent RL stages remain planned. No final optimized recipe has been selected.
+
+### November 10, 2026 — CUDA device override fixed
+
+User explicitly requested changing applicable device settings to CUDA and pushing the change. Inspected project Python files and found one conflicting later MPS assignment in init_trainsft.py; removed it, preserving the existing CUDA availability check and CUDA device selection. Verified Python syntax and reviewed the diff. No package installation, model download, GPU computation, or training was performed for this edit; the PC training run remains unverified.

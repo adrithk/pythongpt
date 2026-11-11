@@ -38,8 +38,6 @@ validation_data = filtered["test"]
 print("Training examples:", len(train_data))
 print("Validation examples:", len(validation_data))
 
-device = torch.device("mps")
-
 model = AutoModelForCausalLM.from_pretrained(
     "models/qwen-base",
     local_files_only=True,
