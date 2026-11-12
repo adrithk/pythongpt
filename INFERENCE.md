@@ -9,6 +9,7 @@ PyTorch's CUDA interface. No retraining is needed.
 ```bash
 git pull
 source .venv/bin/activate
+export HSA_ENABLE_DXG_DETECTION=1
 export S1_MODEL="runs/initial-sft/final"
 ls "$S1_MODEL"
 ```
@@ -80,11 +81,13 @@ From the project root:
 
 ```bash
 docker run --rm \
+  --user 0:0 \
   --network none \
   --cpus 4 \
   --memory 8g \
   --pids-limit 256 \
   --cap-drop ALL \
+  --cap-add DAC_OVERRIDE \
   --security-opt no-new-privileges \
   --mount "type=bind,src=$PWD/runs/benchmarks/s1,dst=/app" \
   --mount "type=bind,src=$PWD/grade_humaneval.py,dst=/grade_humaneval.py,readonly" \
