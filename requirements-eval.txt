@@ -1,0 +1,3 @@
+# Optional HumanEval+ generation dependencies. Keep the training pins unchanged.
+-c requirements.txt
+evalplus==0.3.1
