@@ -1,5 +1,12 @@
 # Proposed DeepSeek-to-Qwen dataset pipeline
 
+Current layout after the user's November 12 simplification request: the small,
+independent collector is deepseek_distill.py. The full workflow described below
+is preserved in deepseek_pipeline.py, with an import option that reuses collected
+questions/answers. See DEEPSEEK_DISTILL.md for learning the collector and
+DEEPSEEK_PIPELINE.md for verification/export/publication. Candidate collection
+does not imply correctness or training readiness.
+
 Design drafted November 11, 2026. On November 12, the user explicitly requested full code and deepseek_distill.py was implemented; see [DEEPSEEK_DISTILL.md](DEEPSEEK_DISTILL.md) for actual commands, supported scope and limits. This document retains the proposed methodology and is not evidence of a successful production run. Teacher-generated share, accepted yield, spending limit and S2 lineage remain open. A 30K-candidate tranche does not replace the larger SFT planning target in AGENTS.md.
 
 ## Evidence and scope

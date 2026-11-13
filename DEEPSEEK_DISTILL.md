@@ -1,178 +1,112 @@
-# DeepSeek dataset generator
+# Small DeepSeek collector
 
-Implemented November 12, 2026, at the user's request. The entry point is
-deepseek_distill.py. It creates a new Python function dataset separately from S1.
-No training, package installation, model download or paid generation runs on
-import. Upload is an explicit separate command.
+The previous 2,031-line implementation combined API generation with a database,
+Docker verification, repairs, release auditing and upload. Those features remain
+available in deepseek_pipeline.py; the standalone collector is deepseek_distill.py.
 
-## Setup
+## What you need to understand
 
-Use the project's Python 3.12 environment and existing training dependencies:
+~~~text
+DeepSeek chooses topics
+  -> creates distinct short problem briefs
+  -> writes a question and code for each brief
+  -> Python parses the JSON into a dictionary
+  -> checks syntax and exact repetitions
+  -> saves the candidate dictionary to disk
+~~~
+
+Rows are explicitly unverified. Correctness checks, semantic/benchmark-overlap
+review, grouped splits, Qwen formatting and upload are in the separate pipeline.
+
+## The seven functions
+
+| Function | Why it exists |
+| --- | --- |
+| save_json | Saves a whole file atomically so interrupted writes cannot destroy it. |
+| fingerprint | Makes a hash for detecting changed requests and exact duplicates. |
+| request_json | Makes the API call, saves raw replies, reuses cached replies, checks fields and enforces the accounting ceiling. |
+| make_record | Checks syntax/function name and exact repeats, then builds one dictionary. |
+| export_candidates | Writes JSONL: one serialized dictionary per line. |
+| collect | The main generation loop: plan, brief, ask, check, save. |
+| main | Reads terminal options, obtains the key, creates the client and calls collect. |
+
+BudgetLimit stops the next request when its reservation would exceed the budget.
+Constants at the top control the model, output allowance, batch size, prices and
+generation instructions.
+
+## Run one example
+
+The collector needs the optional API client, not a GPU or local model:
 
 ~~~bash
 source .venv/bin/activate
 python -m pip install -r requirements-distill.txt
-docker pull python:3.12-slim
-python deepseek_distill.py check
+python deepseek_distill.py --candidates 1 --budget-usd 1 --dry-run
 ~~~
 
-Docker must be installed, running and usable by your terminal user. The script
-never pulls images automatically. The check command runs a tiny trusted Docker
-smoke test and loads only the local tokenizer at models/qwen-base. It does not
-load model weights or call an API. On Windows use WSL2/Linux.
+Remove --dry-run when you intend to make paid requests. USD 1 is an example
+accounting ceiling. The script reads DEEPSEEK_API_KEY or asks at a hidden prompt.
+Leave that prompt and api_key=key unchanged.
 
-Provide DEEPSEEK_API_KEY in your environment or enter it at the hidden prompt.
-The openai package is used as a compatible client pointed to DeepSeek; it does
-not use an OpenAI API key. Do not put a literal key in source control.
+The first example normally needs three calls: topics, a batch of ten briefs,
+and one question/answer. Future examples reuse topics/briefs. At most two new
+attempts are made per job per invocation for malformed replies.
 
-## Generate and resume
+Data lives under data/deepseek-candidates. Repeat the command to resume; increase
+--candidates to extend the collection. It counts attempts, including rejects,
+rather than guaranteed usable examples. Old advanced-pipeline directories stay
+separate. The budget is cumulative for this folder, including all stages and
+retries. Interrupted requests retain reservations; actual usage includes
+reasoning. This is conservative accounting, not a provider-enforced billing cap.
+Verify top-of-file prices before bulk generation. The folder is locked to one
+writer at a time.
 
-Preview without dependencies, file writes, Docker or network:
+## Dictionary format
+
+~~~json
+{
+  "instruction": "Write a function ...",
+  "response": "def example(...):\n    ...",
+  "entry_point": "example",
+  "status": "unverified"
+}
+~~~
+
+Rows also retain IDs, topic, seed brief, provenance and duplicate hashes. Raw API
+responses/usage are separate. Rejected rows have a reason.
+
+A dictionary is the object in Python memory. JSON is its text serialization.
+JSONL stores one serialized dictionary per line of candidates.jsonl.
+
+## Verify and create the training dataset
+
+Important checks were preserved in deepseek_pipeline.py. They consume the saved
+questions/answers without paying to generate those initial answers again:
 
 ~~~bash
-python deepseek_distill.py run --candidates 100 --budget-usd 5 --dry-run
+python deepseek_pipeline.py run \
+  --import-candidates data/deepseek-candidates/candidates.jsonl \
+  --output data/deepseek-verified --budget-usd 5
+
+python deepseek_pipeline.py export \
+  --output data/deepseek-verified \
+  --release data/deepseek-verified/releases/v1
 ~~~
 
-Example paid pilot with an illustrative USD 5 total accounting ceiling:
+Docker, the local Qwen tokenizer and project training dependencies are needed
+for this stage. Checkers/reviews and any required repairs cost additional API
+usage. Add local --exclude-jsonl corpora for overlap audits. Passing generated
+tests is not proof of correctness or absence of benchmark contamination.
 
-~~~bash
-python deepseek_distill.py run --candidates 100 --budget-usd 5
-python deepseek_distill.py status
-~~~
-
-DeepSeek chooses categories, weighted coverage and short briefs. Each brief
-becomes a fixed specification. Fresh calls generate a checker without seeing a
-candidate answer, a solution, and a quality/duplicate review. One solution repair
-is allowed by default; the specification and checker stay fixed.
-
-The model ID is deepseek-flash. Effort defaults to high; compare low/high on a
-pilot before choosing a bulk setting. Teacher output budget defaults to 8192
-tokens, while student admission defaults to 2048 combined Qwen tokens.
-
-Data and SQLite state live under data/deepseek-distill. Candidate count is the
-cumulative number of completed attempts including rejected examples, not a
-guaranteed accepted count. Omitting --candidates targets 30000 attempts. The
-pilot does not replace the larger SFT dataset plan.
-
-Repeat a command to resume. Increase --candidates to extend the same run and
---budget-usd to raise its total ceiling (not an additional allowance). Other
-settings must match. Use a new --output directory for different settings,
-tokenizer files, Docker image, exclusions or split policy. A process lock
-prevents simultaneous writers.
-
-Budget exhaustion exits with code 2; Ctrl+C exits with 130. Completed candidates
-and cached valid responses are reused. Lost/ambiguous network requests retain
-their full cost reservation conservatively.
-
-## Accounting and verification
-
-All stages/retries are recorded. Before calling the API the script reserves an
-output allowance and conservative input estimate. Actual prompt/completion
-usage, including reasoning, replaces the reservation when available. Defaults
-use peak uncached rates checked November 12: USD 0.30/million input and USD
-1.20/million output. Update --input-price and --output-price when rates change.
-Cache/off-peak savings are not assumed. This is estimated accounting, not a
-provider-enforced billing limit. Planning, separate questions, reviews and
-repairs add calls beyond earlier two-pass cost examples.
-
-Supported tasks are deterministic synchronous functions with JSON-compatible
-arguments/results, no input mutation, no expected exceptions, and a restricted
-standard-library subset. This first implementation generates code-only tasks;
-explanation/debugging conversations and arbitrary applications are not included.
-
-Defaults require eight distinct fixed expected-value cases, an independent
-simple reference consistent with those values, and 32 deterministic randomized
-input comparisons. The trusted harness, rather than generated assertions,
-decides success and checks input mutation. Float tolerance is 1e-9. Configure
---min-tests and --fuzz-cases as needed.
-
-Generated code runs only in Docker: no network, read-only filesystem, non-root,
-dropped capabilities, limited memory/processes/CPU/time. The image is resolved
-to its immutable local image ID. AST filtering and limited builtins are scope
-checks, not a Python security proof. Teacher tests/references/reviews may share
-mistakes; passing them is not proof of correctness. Inspect samples manually.
-
-## Deduplication and reserved evaluations
-
-Exact normalized instruction/AST hashes reject repeats. SQLite full-text
-retrieval (or a lexical fallback) supplies nearby accepted problems to the
-teacher for semantic review and related-family grouping. This is not exhaustive
-embedding-based search and cannot guarantee novelty.
-
-Supply already-local reserved prompts/solutions; no benchmark is downloaded:
-
-~~~bash
-python deepseek_distill.py run --candidates 100 --budget-usd 5 \
-  --exclude-jsonl data/reserved-evaluations.jsonl
-~~~
-
-Repeat --exclude-jsonl for multiple files. Recognized row fields include
-instruction/question/prompt and code/response/completion/canonical_solution, or
-messages. HumanEval-style prompt plus canonical_solution is assembled for AST
-matching. Reserved material is never sent to the teacher.
-
-Without supplied files the manifest records decontamination=not_run. Exact/
-lexical checks cannot certify absence of semantic contamination. Export can
-audit additional corpora and removes an entire related family on a match.
-
-## Export and upload
-
-Export is offline. Choose a new release path each time:
-
-~~~bash
-python deepseek_distill.py export \
-  --release data/deepseek-distill/releases/v1
-~~~
-
-Add --exclude-jsonl with actual local files for an overlap-audited export.
-Existing release folders are never overwritten. Artifacts include:
-
-- source.jsonl with accepted records, checkers, provenance and split assignments.
-- train.jsonl, validation.jsonl, test.jsonl with only prompt/completion targets.
-- sft-splits/ containing a saved three-split Hugging Face DatasetDict.
-- assignments.jsonl, rejected.jsonl, excluded.jsonl and integrity manifest.json.
-- hub/ with source and sft Parquet configurations and a dataset card.
-
-The source Parquet metadata_json field preserves heterogeneous test arguments.
-It is not training text. Teacher reasoning remains in raw API files outside the
-release. Qwen export uses a user message, assistant generation header, the
-accepted code and one <|im_end|>, with complete student-token length checks.
-
-Family-hash splits are 90/5/5 train/validation/test in expectation; tiny releases
-can have empty holdouts. Related families stay together. Test should remain
-untouched during development.
-
-The existing init_trainsft.py still uses S1 paths, a 512-token limit and its
-historical test-as-validation name. A later S2 trainer must explicitly use the
-new paths, validation split and intended context limit.
-
-After authenticating Hugging Face with its CLI or token mechanism:
-
-~~~bash
-python deepseek_distill.py upload \
-  --release data/deepseek-distill/releases/v1 \
-  --repo-id YOUR_USERNAME/python-distill-v1
-~~~
-
-Repositories are private by default; add --public only for intended public
-publication. Existing visibility must match. Hashes and unexpected files are
-checked before uploading only hub/. Raw API files, SQLite state, credentials and
-original evaluation corpora are not uploaded. The script does not invent a
-dataset license. Uploaded configurations are source and sft (default).
+The export creates Qwen prompt/completion with the assistant header and ending
+token. Publication remains explicit, with private-by-default repositories and
+integrity checks. Full setup and commands: [DEEPSEEK_PIPELINE.md](DEEPSEEK_PIPELINE.md).
 
 ## Offline tests
 
 ~~~bash
-python -m unittest discover -s tests -p 'test_deepseek_distill.py'
+python -m unittest discover -s tests -p 'test_deepseek*.py'
 ~~~
 
-Tests use fake API responses, trusted authored code fixtures, mocked Docker
-commands and real local Datasets/Arrow exports. Local-tokenizer checks run when
-its files exist. No API calls or downloads occur. Real DeepSeek compatibility,
-generation quality and Docker execution still require a PC pilot.
-
-Sources:
-[API](https://api-docs.deepseek.com/),
-[JSON](https://api-docs.deepseek.com/guides/json_mode/),
-[thinking](https://api-docs.deepseek.com/guides/thinking_mode/),
-[pricing](https://api-docs.deepseek.com/quick_start/pricing/).
+Tests use fake API clients and preserve the original pipeline's tests. They do
+not spend API credits, install packages, download models, run Docker or upload.
