@@ -9,9 +9,22 @@ if not torch.cuda.is_available():
 device = torch.device("cuda")
 print("GPU:", torch.cuda.get_device_name(0))
 print("ROCm version:", torch.version.hip)
-MAX_LENGTH = 512
 
-splits = load_from_disk("data/sft-splits")
+# ---- Recipe 2 (November 14). S1 used: 512 tokens, 1 epoch, LR 2e-5, no warmup,
+# effective batch 16, output runs/initial-sft. Git history has that version.
+DATA = "data/sft-splits"  # Still the S1 data. Point this at the new mix later.
+OUTPUT = "runs/sft-recipe2"  # A new folder, so S1's files are never overwritten.
+MAX_LENGTH = 1024  # Prompt + completion tokens; longer examples are dropped.
+EPOCHS = 3
+LEARNING_RATE = 5e-5  # The peak value, reached after WARMUP_STEPS.
+WARMUP_STEPS = 100
+# Memory: MICROBATCH examples are on the GPU at once. Weights, gradients and
+# optimizer state already use about 8 GB in float32, so keep this small.
+# Raise it to 2 only after watching GPU memory on a short run.
+MICROBATCH = 1
+EFFECTIVE_BATCH = 64  # Examples per weight update.
+
+splits = load_from_disk(DATA)
 
 tokenizer = AutoTokenizer.from_pretrained(
     "models/qwen-base",
@@ -52,12 +65,14 @@ print("Model device:", next(model.parameters()).device)
 
 
 settings = SFTConfig(
-    output_dir="runs/initial-sft",
-    num_train_epochs=1,
-    per_device_train_batch_size=1,
+    output_dir=OUTPUT,
+    num_train_epochs=EPOCHS,
+    per_device_train_batch_size=MICROBATCH,
     per_device_eval_batch_size=1,
-    gradient_accumulation_steps=16,
-    learning_rate=2e-5,
+    gradient_accumulation_steps=EFFECTIVE_BATCH // MICROBATCH,
+    learning_rate=LEARNING_RATE,
+    warmup_steps=WARMUP_STEPS,
+    lr_scheduler_type="cosine",
     max_length=MAX_LENGTH,
     completion_only_loss=True,
     eos_token="<|im_end|>",
@@ -71,9 +86,9 @@ settings = SFTConfig(
     logging_steps=10,
     logging_strategy="steps",
     eval_strategy="steps",
-    eval_steps=500,
-    save_steps=500,
-    save_total_limit=2,
+    eval_steps=250,  # One step now covers 64 examples, not 16.
+    save_steps=250,
+    save_total_limit=6,
     report_to="none",
     seed=42,
 )

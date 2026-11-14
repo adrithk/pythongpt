@@ -49,7 +49,7 @@ sys.stdout.write(job["marker"] + json.dumps(errors) + "\n")
 """
 
 
-def docker_command(docker, image):
+def docker_command(docker, image, program=RUNNER, limit=TIME_LIMIT):
     """The container is deliberately given almost nothing."""
     return [
         *docker,
@@ -67,11 +67,11 @@ def docker_command(docker, image):
         image,
         "timeout",
         "--signal=KILL",
-        str(TIME_LIMIT),
+        str(limit),
         "python",
         "-I",
         "-c",
-        RUNNER,
+        program,
     ]
 
 

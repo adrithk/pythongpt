@@ -291,3 +291,26 @@ Implemented distill_common.py, distill_questions.py, distill_answers.py, distill
 DeepSeek documentation read November 14 (thinking mode, chat completion, pricing, JSON mode, rate limit pages under https://api-docs.deepseek.com/): deepseek-flash maps to DeepSeek-V4.1-Flash-1017; thinking can be disabled; reasoning_effort accepts none/low/high/max with high the default; temperature has no effect in thinking mode; max_tokens defaults to 8K without thinking and 64K with; JSON mode can return blank content and should be retried; concurrency limit 2,500 per account; peak USD 0.30 input / 1.20 output per million tokens, off-peak half. Whether reasoning tokens count against max_tokens is not stated in the docs; the November 13 replies show that they do.
 
 Next: 200-question pilot on the PC with a small budget, then read report.json (pass rate, cost per accepted row, results by form and difficulty) and a hand sample before choosing scale.
+
+
+### November 14, 2026 — Trainer review and S2 recipe proposal
+
+User asked how to train better and beat official 0.5B Instruct. Read init_trainsft.py, init_prepare.py, infer.py and benchmark_humaneval.py; no code changed and nothing was run. Papers read via arXiv HTML: Qwen2.5-Coder report (2409.12186v3) Table 5: 0.5B base HE 28.0 / HE+ 23.8, Table 16: 0.5B Instruct 61.6 / 57.3, no instruct hyperparameters stated. xCoder (2502.07487) Table 1: 0.5B SFT 69.5 / 66.5 on ~97.3K samples; hyperparameters stated only for 32B (LR 5e-5, 100 warmup, cosine, batch 1024, truncation 2048; epochs not stated). OpenCoder (2411.04905v1) Sec 4.3: stage 2 three epochs, batch 512, LR 5e-5, 100 warmup, cosine; Table 10: stage 1 only 48.1 HE+ versus 64.0 with stage 2 for the 1.5B model. Magicoder and SelfCodeAlign settings were read only as summaries and are not relied on. The proposal and its unverified hypotheses are recorded in AGENTS.md. S1 raw benchmark outputs remain on the PC and uninspected.
+
+
+### November 14, 2026 — Recipe 2 written into the trainer; curation proposal
+
+At the user's request edited init_trainsft.py to the second recipe: 1024-token cap, 3 epochs, peak LR 5e-5 with 100 warmup steps and cosine decay, microbatch 1 with accumulation 64, eval/save every 250 updates, six retained checkpoints, output runs/sft-recipe2, data path unchanged. Withdrew the earlier microbatch-16 / no-checkpointing suggestion after estimating float32 memory (about 8 GB of weights, gradients and optimizer state plus about 0.6 MB of logits per token); this is an estimate, not a measurement. Mac-only checks: SFTConfig builds under the pinned packages and the scheduler trace is 0 at update 1, 2.45e-5 at 50, 5e-5 at 101, 2.57e-5 at the midpoint, ~0 at 5,478. No training, GPU memory check or timing was run.
+
+Read dataset-viewer first rows for OpenCodeInstruct (via its card; the first-rows endpoint returned 404), self-oss-instruct-sc2-exec-filter-50k, opc-sft-stage2 educational_instruct and evol_instruct, and Magicoder-OSS-Instruct-75K. Column facts and the resulting curation proposal are in AGENTS.md. Nothing was downloaded beyond those preview rows.
+
+
+### November 14, 2026 — S2 curation scripts written and tried on preview rows
+
+User approved the curation plan with code-only answers. Wrote curate_collect.py, curate_verify.py, curate_build.py, tests/test_curate.py and CURATE.md; details and limits are in AGENTS.md. Checks on the Mac: 59 offline tests pass, Ruff clean.
+
+Real-row trial, streaming only the first 400 rows of each Hub source (no bulk download): educational_instruct kept 399 (1 invalid test block); self-oss kept 348 (40 non-standard-library or blocked imports, 10 open(), 1 eval(), 1 without a definition); OpenCodeInstruct kept 52 (216 with an upstream failed test, 129 with a judge score below 5, 2 open(), 1 import). These are unshuffled first rows. A 300-row educational pull was written to the session scratch folder and passed through curate_build.py with the benchmark check skipped (evalplus is not installed on the Mac): 300 fit 1,024 tokens, 7 repeats removed, 264 train / 29 validation, median 115 tokens; the saved splits loaded with prompt/completion columns and the expected assistant header and end marker. The temporary data/peektest-splits folder was deleted. Dataset code was not executed on the Mac.
+
+Defect found and fixed during the trial: after a partial streaming read the process printed its results and then hung during interpreter shutdown (two of three sources, 120 s until killed; a trace showed the hang is after Python finalization begins). curate_collect.py now flushes and exits directly once its files are saved; all three sources then finished in about 8 to 22 seconds.
+
+Not done: real Docker verification, the evalplus benchmark check on real data, full pulls, yields, training.
