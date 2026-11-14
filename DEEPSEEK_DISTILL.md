@@ -1,5 +1,10 @@
 # Small DeepSeek collector
 
+> November 14, 2026: for building the training set, use the three-stage
+> workflow in [DISTILL_STAGES.md](DISTILL_STAGES.md). This collector still
+> works and is kept as the simplest example of one API call producing one
+> saved dictionary, but it cycles 20 topics and checks nothing by running it.
+
 The previous 2,031-line implementation combined API generation with a database,
 Docker verification, repairs, release auditing and upload. Those features remain
 available in deepseek_pipeline.py; the standalone collector is deepseek_distill.py.

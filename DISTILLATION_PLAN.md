@@ -1,5 +1,9 @@
 # Proposed DeepSeek-to-Qwen dataset pipeline
 
+November 14, 2026: the current implementation for new collection is the
+three-stage workflow in [DISTILL_STAGES.md](DISTILL_STAGES.md). The notes
+below are the earlier design and its research basis.
+
 Current layout after the user's November 12 simplification request: the small,
 independent collector is deepseek_distill.py. The full workflow described below
 is preserved in deepseek_pipeline.py, with an import option that reuses collected

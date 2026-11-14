@@ -1,0 +1,277 @@
+# One skill per line. Lines starting with # and blank lines are ignored.
+# distill_questions.py gives every batch of questions ONE of these skills, and
+# walks through the whole list before repeating any. Edit freely: add, remove
+# or reword lines. More, narrower skills = more varied questions.
+
+# --- strings: basics
+counting characters or substrings in a string
+reversing strings, words or segments
+checking string properties such as palindromes or all-unique characters
+changing case, capitalisation and title rules
+trimming, padding and aligning text
+splitting text on delimiters and rejoining
+finding and replacing substrings by rule
+comparing strings while ignoring case, spaces or punctuation
+detecting anagrams and grouping by letter content
+working with vowels, consonants and character classes
+extracting digits or numbers embedded in text
+building strings from repeated or interleaved pieces
+string prefixes and suffixes
+longest or shortest word and other per-word statistics
+removing duplicate characters or words while keeping order
+
+# --- strings: algorithms
+run-length and other simple compression schemes
+Caesar, substitution and other toy ciphers
+longest common prefix, suffix or substring
+substring search and pattern positions without regex
+sliding window over characters
+balanced brackets and nesting depth
+string rotation and cyclic shifts
+edit operations and distance between strings
+subsequence checks and longest common subsequence
+lexicographic ordering and next or previous string
+converting between naming styles such as snake_case and camelCase
+wrapping text to a width and justifying lines
+abbreviating, truncating and masking text
+generating strings that follow a numeric pattern
+palindromic substrings and partitions
+
+# --- parsing and formatting
+parsing key=value or delimiter-separated records
+parsing simple arithmetic expressions
+tokenising text into words, numbers and symbols
+validating formats such as identifiers, dates or version strings
+formatting numbers with separators, precision or units
+converting between number bases
+Roman numerals and other historical numeral systems
+parsing and formatting durations and clock times
+parsing nested structures written with brackets
+rendering tables, grids or aligned columns as text
+writing numbers as words and words as numbers
+comparing version strings
+parsing query strings, paths or simple URLs by hand
+template filling and placeholder substitution
+escaping and unescaping special characters
+
+# --- lists: basics
+summing, averaging and other aggregates over a list
+finding minimum, maximum and their positions
+filtering a list by a condition
+transforming every element of a list
+removing duplicates while preserving order
+counting occurrences and finding the most common element
+reversing and rotating lists
+splitting a list into chunks or by a predicate
+merging and interleaving several lists
+finding elements common to or missing from lists
+checking whether a list is sorted, strictly increasing or alternating
+pairwise differences and adjacent comparisons
+prefix sums and running totals
+flattening nested lists
+inserting into and deleting from positions by rule
+
+# --- lists: algorithms
+two-pointer scans over a sorted list
+sliding window sums and maxima over numbers
+finding pairs or triples that meet a target
+longest run or streak with a property
+partitioning a list around a pivot or condition
+maximum subarray and related contiguous-range problems
+merging overlapping intervals
+interval scheduling and overlap counting
+finding the kth smallest or largest element
+majority and frequent elements
+next greater or smaller element
+rearranging elements under constraints
+cyclic and wrap-around indexing
+detecting peaks, valleys and local extremes
+range queries answered with precomputed tables
+
+# --- sorting and searching
+sorting by a custom key or several keys
+stable sorting and tie-breaking rules
+implementing a classic sorting algorithm by hand
+binary search for a value or insertion point
+binary search on the answer
+merging sorted sequences
+ranking elements and assigning positions
+sorting strings by length, content or embedded numbers
+top-k selection using heapq
+counting inversions or out-of-order pairs
+searching in a rotated or partially sorted list
+bucketing and counting sort ideas
+
+# --- dictionaries and sets
+building a frequency table
+grouping items by a computed key
+inverting a dictionary
+merging dictionaries with a conflict rule
+looking up nested keys safely
+filtering and transforming dictionary entries
+sorting dictionary items by value or key
+set union, intersection and difference problems
+finding duplicates and uniques with sets
+using a dictionary as a cache or lookup table
+counting with collections.Counter
+grouping with collections.defaultdict
+ordered and insertion-order-sensitive mappings
+two-way mappings and consistency checks
+comparing two dictionaries and reporting differences
+
+# --- nested data
+walking nested lists and dictionaries recursively
+flattening and unflattening nested dictionaries
+summarising a list of record dictionaries
+joining two lists of records on a key
+pivoting records into a table keyed two ways
+deep comparison and deep merging of structures
+selecting fields from records and renaming keys
+trees stored as nested dictionaries or lists
+computing depth, size or leaf counts of nested data
+transposing and reshaping lists of lists
+
+# --- numbers and arithmetic
+integer division, remainders and rounding rules
+working with the digits of an integer
+parity, sign and simple number classification
+greatest common divisor and least common multiple
+prime testing and prime generation
+factorisation and divisors
+perfect, abundant, happy and other special numbers
+arithmetic and geometric sequences
+Fibonacci-like recurrences
+powers, roots and exponentiation by squaring
+modular arithmetic
+fractions and exact rational arithmetic
+percentages, ratios and proportional splits
+rounding money and avoiding float error
+clamping, scaling and interpolating values
+overflow-free arithmetic on digit strings
+number patterns such as triangular or square numbers
+digit sums, digital roots and checksums
+converting units and temperatures
+simple statistics: median, mode, variance
+
+# --- combinatorics and enumeration
+generating permutations
+generating combinations and subsets
+counting arrangements without listing them
+Cartesian products with itertools.product
+partitions of a number or a list
+Gray codes and bit-pattern sequences
+enumerating valid bracket or digit strings
+next permutation in order
+choosing and counting with math.comb and math.factorial
+generating sequences under a constraint
+
+# --- recursion and dynamic programming
+simple recursion on numbers
+recursion on lists and strings
+memoisation with functools.lru_cache
+counting paths in a grid
+coin change and making totals
+knapsack-style selection
+longest increasing subsequence
+climbing stairs and step-counting variants
+partitioning a string or list optimally
+backtracking search with pruning
+minimum cost paths
+dynamic programming over two sequences
+
+# --- greedy and simulation
+greedy choice with sorting
+making change and allocation greedily
+simulating a queue, line or round-robin process
+simulating a game with simple rules
+simulating movement on a grid or number line
+state machines driven by an input sequence
+scheduling tasks with deadlines or cooldowns
+simulating a bank, inventory or scoreboard
+elimination games and Josephus-style counting
+step-by-step process until a condition holds
+
+# --- stacks, queues and heaps
+using a list as a stack
+evaluating postfix or prefix expressions
+monotonic stack problems
+queues with collections.deque
+priority queues with heapq
+undo and history tracking
+matching and removing adjacent pairs
+bounded buffers and sliding caches
+
+# --- grids and matrices
+reading rows, columns and diagonals of a matrix
+rotating and flipping a matrix
+spiral and zigzag traversal
+counting neighbours in a grid
+flood fill and connected regions
+matrix addition, multiplication and transpose
+searching in a sorted matrix
+validating boards such as tic-tac-toe or sudoku
+shortest path in a grid with obstacles
+drawing shapes into a character grid
+cellular automata steps
+
+# --- graphs and trees
+breadth-first search on an adjacency dictionary
+depth-first search and reachability
+shortest path with unweighted edges
+shortest path with weights using heapq
+topological ordering of dependencies
+detecting cycles
+connected components and union-find
+tree traversals on nested tuples or dictionaries
+lowest common ancestor and paths in a tree
+counting degrees and classifying nodes
+
+# --- bits and binary
+counting set bits and testing single bits
+setting, clearing and toggling bits
+bit masks as sets of flags
+binary strings: adding, comparing and padding
+XOR tricks for finding odd-one-out values
+powers of two and bit lengths
+encoding small values into one integer
+
+# --- dates, time and geometry
+date arithmetic with datetime
+day of week, leap years and calendar facts
+overlap and gaps between time ranges
+converting between time zones given offsets
+distances between points
+areas and perimeters of basic shapes
+rectangle overlap and containment
+points on lines, slopes and collinearity
+angles, clock hands and rotations
+bounding boxes and coordinate transforms
+
+# --- standard library tools
+itertools.groupby and run detection
+itertools.accumulate, chain and zip_longest
+functools.reduce and function composition
+zip, enumerate and parallel iteration
+any, all and short-circuit checks
+sorted with operator.itemgetter or attrgetter
+string methods versus manual loops
+regular expressions for matching and extracting
+regular expressions for substitution and splitting
+bisect for maintaining sorted lists
+math module functions such as gcd, isqrt and floor
+statistics module on small data
+textwrap and string formatting mini-language
+json dumps and loads on in-memory values
+fractions and decimal for exact results
+
+# --- language features
+list, dictionary and set comprehensions
+generators and lazy sequences returned as lists
+default and keyword arguments
+variable numbers of arguments with *args and **kwargs
+functions that return functions
+tuple unpacking and multiple return values
+slicing with steps and negative indices
+handling None and optional values
+catching an exception inside the function and returning a fallback value
+type conversions between str, int, float and bool
