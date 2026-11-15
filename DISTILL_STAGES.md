@@ -63,18 +63,42 @@ To change the dataset, change those weights or edit `distill_skills.txt`.
 
 ## What "verified" means here
 
-`distill_verify.py` keeps a row only if:
+Before any code runs, the stages reject (by reading the code, not running it):
 
-1. the solution runs and every test passes within 10 seconds, and
-2. for `fix` questions, at least one test fails on the original buggy code.
+- a `complete` stub that already has a body. After the docstring only `pass`
+  or `...` may follow. Its docstring must also show at least one `>>>`
+  example;
+- a test that does not call the function. `assert f is not None` mentions `f`
+  but checks nothing;
+- for `complete` and `fix` questions, a solution whose arguments or return
+  type hint differ from the code the question showed.
+
+`distill_verify.py` then keeps a row only if:
+
+1. the solution runs and every one of its own tests passes within 10 seconds;
+2. for `complete` questions, it also passes the `>>>` examples in the stub's
+   docstring. These were written with the question, before any solution
+   existed, so they cannot have been bent to fit the solution;
+3. for a retry, it also passes the test that rejected the earlier attempt;
+4. for `fix` questions, at least one test fails on the original buggy code.
 
 A failed row gets one fresh attempt, which is told why the first was rejected.
 After two failures the question is dropped.
 
+Rule 3 drops some good rows on purpose. A retry writes new tests, and without
+this rule it could get through simply by leaving out the test that caught the
+first attempt. But sometimes that earlier test was the wrong part, and then a
+correct retry is thrown away too. The retry prompt does not mention the rule,
+so the model is not pushed to bend a correct solution to fit a wrong test. Set
+`KEEP_FAILED_TEST = False` at the top of `distill_verify.py` to switch it off.
+
 Limits you should know:
 
 - The same model writes the solution and its tests, so a shared
-  misunderstanding can pass. Read a sample by hand.
+  misunderstanding can pass. This still holds for `describe` and `fix`
+  questions. `complete` rows also have the question-time `>>>` examples, but
+  those come from the same model too, and there are only a few of them. Read a
+  sample by hand.
 - The repeat check compares words. It does not catch the same problem told
   with different words.
 - There is no benchmark-overlap audit here. `deepseek_pipeline.py` has one
@@ -154,6 +178,10 @@ rates, checked November 14; off-peak is half).
 - `usd_per_accepted`: multiply by your target size for a cost estimate.
 - `counts`: results split by form and difficulty. A form with a low pass rate
   needs its prompt fixed before a big run.
+- `failed_attempt_reasons`: why each failed attempt failed, counting every
+  attempt, including a first attempt whose retry then passed (the test text is
+  cut off, so all `AssertionError` failures count together). This shows how
+  often each rule above fires.
 
 Then read 20 rows of `accepted.jsonl` yourself. Are the questions clear? Are
 they different from each other? Are the solutions the kind of code you want
@@ -176,10 +204,10 @@ Everything is under `data/distill/` unless you pass `--output`.
 | `report.json` | Counts and cost |
 | `requests/` | Every raw API reply, including reasoning and token usage |
 
-`accepted.jsonl` is not yet in Qwen training format. That step is the same
-idea as `format_example` in `init_prepare.py`: `instruction` becomes the user
-prompt, and `response` plus the end marker becomes the completion. The S1
-trainer drops examples over 512 tokens, so measure lengths before training.
+`accepted.jsonl` is not yet in Qwen training format. `curate_build.py` does
+that step (see [CURATE.md](CURATE.md)): `instruction` becomes the user prompt,
+and `response` plus the end marker becomes the completion, as in
+`init_prepare.py`. It drops rows over 1,024 tokens, the current trainer cap.
 
 ## Offline tests
 

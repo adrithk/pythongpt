@@ -9,6 +9,7 @@ Output: questions.jsonl in the output folder. Nothing is solved or run here.
 
 import argparse
 import ast
+import doctest
 import json
 import math
 import random
@@ -168,10 +169,18 @@ def check_question(form, entry, text, code):
     if form == "fix" and not text:
         raise ValueError("missing description of the intended behaviour")
     if form == "complete":
-        if not ast.get_docstring(functions[0]):
+        docstring = ast.get_docstring(functions[0])
+        if not docstring:
             raise ValueError("stub has no docstring")
-        if len(functions[0].body) > 2:  # Docstring plus at most `pass` or `...`.
+        # After the docstring: nothing, `pass` or `...`. A `return` would mean
+        # the question already gives its own answer away.
+        rest = [ast.unparse(node) for node in functions[0].body[1:]]
+        if rest not in ([], ["pass"], ["..."]):
             raise ValueError("stub already contains a solution")
+        # The >>> examples become a fixed test in distill_verify.py. This only
+        # reads the text; nothing is run here.
+        if not doctest.DocTestParser().get_examples(docstring):
+            raise ValueError("stub docstring has no >>> example")
 
 
 def build_instruction(form, text, code, rng):

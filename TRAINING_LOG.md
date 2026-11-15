@@ -314,3 +314,32 @@ Real-row trial, streaming only the first 400 rows of each Hub source (no bulk do
 Defect found and fixed during the trial: after a partial streaming read the process printed its results and then hung during interpreter shutdown (two of three sources, 120 s until killed; a trace showed the hang is after Python finalization begins). curate_collect.py now flushes and exits directly once its files are saved; all three sources then finished in about 8 to 22 seconds.
 
 Not done: real Docker verification, the evalplus benchmark check on real data, full pulls, yields, training.
+
+### November 14, 2026 — Read-only review of the saved three-stage distillation
+
+User asked whether an agent's distillation improvements are better and how they work. Inspected the saved files and history: clean main at 1e3b081, one checkout, no attached alternative worktree. The three-stage redesign is in 7fa721d; the later commit only adds configurable program/time-limit parameters to distill_verify.docker_command for curation reuse. No newer distillation review changes were present in this checkout. Compared the design with the earlier small collector: program-owned skills/forms/levels, batched question generation, parallel calls, execution filtering, bug-catching tests for fix tasks, saved replies and cumulative budget accounting are concrete improvements; accepted yield, solution quality and student gains remain unmeasured.
+
+Re-ran `python -m unittest discover -s tests -p 'test_distill*.py'` using the existing .venv: 17/17 pass. Ran only trusted authored fixtures through the local runner and reproduced three gaps:
+
+- `check_answer` only checks that an assert's AST mentions the entry-point name. Six distinct `assert f is not None, "case N"` statements pass validation and verification even when f returns an intentionally wrong constant; none calls f.
+- Neither answer validation nor runtime judging compares the supplied signature with the solution signature. A one-argument complete-form stub can be answered by a two-argument function with matching self-authored tests and be accepted.
+- `check_question` limits a complete-form function body to two statements but does not require its optional second statement to be pass or ellipsis. A docstring followed by `return x + 1` passes, allowing already-solved completion prompts.
+
+The same API call writes the solution and expected results, and the retry regenerates both; shared misunderstandings or weakened tests can survive. Recommended next changes are small checks for actual calls, signature preservation and truly empty stubs, plus consideration of tests generated from the question without seeing the answer and kept fixed during repair. Existing lexical repetition checks and downstream benchmark-name/wording checks do not establish semantic uniqueness or absence of contamination. A 200-question pilot uses only 20 skill batches; it does not cover all ~235 skills. No implementation edits, paid API calls, package installation, Docker execution, data generation or training were performed. Only shared context/log maintenance was changed.
+
+### November 14, 2026 — Review findings reproduced and the distillation checks tightened
+
+User pasted the review above, asked whether it was true without blind agreement, asked for fixes if so, and asked that real changes be delegated to Opus 5.5. Reproduced all three gaps on the saved code with small authored fixtures run through the local runner: six `assert f is not None` tests accepted a wrong solution; a two-argument answer to a one-argument stub was accepted; a docstring plus `return x + 1` passed the stub check.
+
+Judgement given to the user: the three gaps are real and cheap to close. Likelihood in a real run is an estimate, not a measurement: the already-solved stub is the most plausible (easy problems have one-line solutions), a changed signature occasional, uncalled tests unlikely from a teacher that is not trying to cheat. The structural concern (one call writes solution and tests; a retry rewrites both) is real in principle and was already listed as a limit; its size is unmeasured.
+
+Changes, written by a delegated Opus 5.5 agent from a fixed brief and reviewed line by line here:
+
+- distill_answers.py: each assert must contain a call to the entry point. For complete and fix questions the solution's arguments and return annotation must equal the question's (`ast.dump` comparison); otherwise "solution changed the given signature".
+- distill_questions.py: a complete-form stub may have nothing, `pass` or `...` after its docstring, and the docstring must contain at least one `>>>` example.
+- distill_verify.py: complete-form solutions must pass the stub's docstring examples, run as one extra test program inside the runner. A retry must also pass the test that rejected the earlier attempt (`KEEP_FAILED_TEST = True`); results now store `failed_test`. report.json gains `failed_attempt_reasons`, a count over every failed attempt with the test text cut off.
+- DISTILL_STAGES.md updated to match; its stale 512-token note now points to curate_build.py and the 1,024-token cap.
+
+Not adopted: a separate test-writing API call per question with tests fixed during repair. Reasons given: roughly double the answer-stage spend, the same model still writes both sides so independence is partial, and wrong hand-computed expected values would discard correct solutions. The docstring-example check and the earlier-test rule are the no-cost substitutes. Known trade-off: the earlier-test rule also drops correct retries when the first test was the wrong part.
+
+Verified on the Mac: `python -m unittest discover -s tests` runs 63 tests, all pass (59 earlier plus 4 new test methods); Ruff check and format clean on the four changed Python files (Homebrew Ruff 0.16.5; Ruff is not installed in .venv); the three reproductions are now rejected; the questions dry-run still works. Not verified: any paid API call, any real Docker run (the docstring-example program has run only under the local interpreter, not in python:3.12-slim), how often each rule fires on real teacher output, pass rates, cost per accepted row, data quality. Nothing committed.

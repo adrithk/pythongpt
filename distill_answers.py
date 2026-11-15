@@ -68,18 +68,42 @@ def make_prompt(question, failure=None):
     )
 
 
-def check_answer(entry, code, tests):
-    """Read-only checks. Returns the cleaned (code, tests) or raises ValueError."""
+def find_function(code, entry):
+    """Return the top-level `def entry` in code (parsed, never run), or None."""
+    for node in parse_python(code).body:
+        if isinstance(node, ast.FunctionDef) and node.name == entry:
+            return node
+    return None
+
+
+def same_signature(given, solution):
+    """True when the arguments and return annotation are written the same way."""
+    for part in ("args", "returns"):
+        before, after = getattr(given, part), getattr(solution, part)
+        # ast.dump turns a piece of syntax into text, ignoring line numbers.
+        if (ast.dump(before) if before else "") != (ast.dump(after) if after else ""):
+            return False
+    return True
+
+
+def check_answer(entry, code, tests, given_code=None):
+    """Read-only checks. Returns the cleaned (code, tests) or raises ValueError.
+
+    given_code is the stub or buggy function the question showed, if any; the
+    solution must keep its signature, since the student is told to.
+    """
     code = code.strip()
     if code.startswith("```"):  # Remove Markdown fences if the model added them.
         code = "\n".join(code.splitlines()[1:]).rsplit("```", 1)[0].strip()
     if not code or any(token in code for token in CONTROL_TOKENS):
         raise ValueError("empty code or unexpected chat control token")
-    tree = parse_python(code)
-    if not any(
-        isinstance(node, ast.FunctionDef) and node.name == entry for node in tree.body
-    ):
+    function = find_function(code, entry)
+    if function is None:
         raise ValueError("solution does not define the requested function")
+    if given_code:
+        given = find_function(given_code, entry)
+        if given is None or not same_signature(given, function):
+            raise ValueError("solution changed the given signature")
     cleaned = []
     for test in tests:
         if not isinstance(test, str):
@@ -87,10 +111,13 @@ def check_answer(entry, code, tests):
         statements = parse_python(test.strip()).body
         if len(statements) != 1 or not isinstance(statements[0], ast.Assert):
             raise ValueError("a test is not a single assert statement")
-        names = {
-            node.id for node in ast.walk(statements[0]) if isinstance(node, ast.Name)
+        # `assert f is not None` mentions f but tests nothing: require a call.
+        called = {
+            node.func.id
+            for node in ast.walk(statements[0])
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
         }
-        if entry not in names:
+        if entry not in called:
             raise ValueError("a test does not call the function")
         if test.strip() not in cleaned:
             cleaned.append(test.strip())
@@ -150,9 +177,10 @@ def collect(client, args):
                 args.effort,
             )
             record = {"id": question["id"], "attempt": attempt, "provenance": receipt}
+            given = question["code"] if question["form"] != "describe" else None
             try:
                 code, tests = check_answer(
-                    question["entry_point"], reply["code"], reply["tests"]
+                    question["entry_point"], reply["code"], reply["tests"], given
                 )
                 record.update(status="unverified", code=code, tests=tests)
             except ValueError as exc:

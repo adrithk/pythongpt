@@ -7,6 +7,7 @@ Input: answers/. Output: accepted.jsonl (the training candidates) and report.jso
 """
 
 import argparse
+import ast
 import json
 import secrets
 import shlex
@@ -29,6 +30,10 @@ from distill_common import (
 
 IMAGE = "python:3.12-slim"
 TIME_LIMIT = 10  # Seconds for one solution and all of its tests.
+# A retry must also pass the test that rejected the earlier attempt, so it
+# cannot get through by dropping that test. The price: when the earlier TEST
+# was the wrong part, a correct retry is thrown away too.
+KEEP_FAILED_TEST = True
 
 # This small program runs INSIDE the container. It receives the code and tests
 # as JSON on standard input and prints one line: which tests raised an error.
@@ -46,6 +51,19 @@ for test in job["tests"]:
     except BaseException as exc:
         errors.append(type(exc).__name__)
 sys.stdout.write(job["marker"] + json.dumps(errors) + "\n")
+"""
+
+
+# A complete-form stub's >>> examples, as one test program for RUNNER. They were
+# written with the question, before any solution existed. Inside RUNNER,
+# globals() is the namespace holding the solution.
+EXAMPLES = """import doctest
+_test = doctest.DocTestParser().get_doctest(
+    {docstring!r}, globals().copy(), "examples", None, 0
+)
+_runner = doctest.DocTestRunner(verbose=False, optionflags=doctest.NORMALIZE_WHITESPACE)
+_runner.run(_test, out=lambda text: None)
+assert _runner.tries and not _runner.failures
 """
 
 
@@ -99,14 +117,42 @@ def run_tests(command, code, tests):
     return None
 
 
-def judge(command, question, answer):
-    """Decide whether one answer is kept. The reason is shown to a retry."""
+def examples_test(stub, entry):
+    """Read the stub's docstring on this machine (parsing only, never running)."""
+    for node in ast.parse(stub).body:
+        if isinstance(node, ast.FunctionDef) and node.name == entry:
+            return EXAMPLES.format(docstring=ast.get_docstring(node))
+    raise ValueError("stub does not define the function")
+
+
+def judge(command, question, answer, earlier=None):
+    """Decide whether one answer is kept. The reason is shown to a retry.
+
+    earlier is the verified result of the previous attempt, if there was one.
+    """
+    crashed = {"passed": False, "reason": "the solution crashed or timed out"}
     errors = run_tests(command, answer["code"], answer["tests"])
     if errors is None:
-        return {"passed": False, "reason": "the solution crashed or timed out"}
+        return crashed
     for test, error in zip(answer["tests"], errors):
         if error:
-            return {"passed": False, "reason": f"{error} in test: {test}"}
+            reason = f"{error} in test: {test}"
+            return {"passed": False, "reason": reason, "failed_test": test}
+    # Tests the answer did not write itself, each with its failure reason.
+    extra = []
+    if question["form"] == "complete":
+        test = examples_test(question["code"], question["entry_point"])
+        extra.append((test, "a docstring example fails"))
+    if KEEP_FAILED_TEST and earlier and earlier.get("failed_test"):
+        reason = "still fails the test that rejected the earlier attempt"
+        extra.append((earlier["failed_test"], reason))
+    if extra:
+        errors = run_tests(command, answer["code"], [test for test, _ in extra])
+        if errors is None:
+            return crashed
+        for (test, reason), error in zip(extra, errors):
+            if error:
+                return {"passed": False, "reason": reason, "failed_test": test}
     if question["form"] == "fix":
         # The given buggy code must fail at least one test; otherwise the
         # tests would accept the bug and prove nothing.
@@ -118,7 +164,7 @@ def judge(command, question, answer):
 
 def export(output):
     """Write accepted.jsonl and a small report of what happened to each question."""
-    accepted, counts = [], Counter()
+    accepted, counts, reasons = [], Counter(), Counter()
     questions = read_jsonl(output / "questions.jsonl")
     for question in questions:
         group = f"{question['form']}/{question['level']}"
@@ -126,8 +172,11 @@ def export(output):
         for path in sorted((output / "answers").glob(f"{question['id']}_*.json")):
             answer = load_json(path)
             result = output / "verified" / path.name
+            # Every failed attempt counts, without the test text, so the
+            # report shows how often each rule fires, even when a retry passes.
             if answer["status"] == "rejected":
                 outcome = "failed"
+                reasons[answer["reason"].split(" in test:")[0]] += 1
             elif not result.exists():
                 outcome = "not tested yet"
             elif load_json(result)["passed"]:
@@ -148,6 +197,7 @@ def export(output):
                 break
             else:
                 outcome = "failed"
+                reasons[load_json(result)["reason"].split(" in test:")[0]] += 1
         attempts = len(list((output / "answers").glob(f"{question['id']}_*.json")))
         if outcome == "failed" and attempts < MAX_ATTEMPTS:
             outcome = "failed, one retry left"
@@ -161,6 +211,7 @@ def export(output):
         "accounted_usd": round(spent, 4),
         "usd_per_accepted": round(spent / len(accepted), 5) if accepted else None,
         "counts": dict(sorted(counts.items())),
+        "failed_attempt_reasons": dict(sorted(reasons.items())),
     }
     save_json(output / "report.json", report)
     print(json.dumps(report, indent=2))
@@ -197,7 +248,12 @@ def verify(args):
 
         def work(path):
             answer = load_json(path)
-            result = judge(command, questions[answer["id"]], answer)
+            # The previous attempt's result (attempt 0 has none: "_-1" never exists).
+            before = (
+                output / "verified" / f"{answer['id']}_{answer['attempt'] - 1}.json"
+            )
+            earlier = load_json(before) if before.exists() else None
+            result = judge(command, questions[answer["id"]], answer, earlier)
             save_json(output / "verified" / path.name, result)
             return f"{path.stem}: {'passed' if result['passed'] else result['reason']}"
 

@@ -81,13 +81,18 @@ def fake_questions(prompt):
     return {"questions": rows}
 
 
+def signature(name, prompt):
+    """Keep the stub's signature when the prompt shows a complete-form stub."""
+    return "(x: int) -> int" if f"def {name}(x: int) -> int" in prompt else "(x)"
+
+
 def fake_answers(wrong_first=()):
     """Solve 'x plus one' questions; names in wrong_first get a bad first answer."""
 
     def answer(prompt):
         name = re.search(r"must\s+define `(\w+)`", prompt).group(1)
         bad = name in wrong_first and "was rejected" not in prompt
-        code = f"def {name}(x):\n    return x + {2 if bad else 1}"
+        code = f"def {name}{signature(name, prompt)}:\n    return x + {2 if bad else 1}"
         return {
             "code": code,
             "tests": [f"assert {name}({n}) == {n + 1}" for n in range(6)],
@@ -219,14 +224,18 @@ class StageTest(unittest.TestCase):
         self.assertEqual(len(skills), len(set(skills)))
 
     def test_question_checks(self):
-        stub = 'def f(x):\n    """Doc."""'
-        q.check_question("complete", "f", "", stub)
+        stub = 'def f(x):\n    """Doc.\n\n    >>> f(1)\n    2\n    """'
+        for body in ("", "\n    pass", "\n    ..."):  # Empty stubs are fine.
+            q.check_question("complete", "f", "", stub + body)
         q.check_question("describe", "f", "Write f(x).", "")
         for form, entry, text, code in [
             ("describe", "f", "Write a function.", ""),
             ("describe", "not valid", "Write not valid.", ""),
             ("complete", "f", "", "def f(x):\n    pass"),
             ("complete", "f", "", stub + "\n    y = x\n    return y"),
+            ("complete", "f", "", stub + "\n    return x + 1"),  # Already solved.
+            ("complete", "f", "", stub + "\n    pass\n    pass"),
+            ("complete", "f", "", 'def f(x):\n    """Doc without examples."""'),
             ("complete", "f", "", "def f(x:"),
             ("fix", "f", "", "def f(x):\n    return x"),
             ("fix", "f", "Should add one.", "def g(x):\n    return x"),
@@ -298,9 +307,32 @@ class StageTest(unittest.TestCase):
             ("def f(x):\n    return x", tests[:5] + ["assert 1 == 1"]),
             ("def f(x):\n    return x", tests[:5] + ["assert f(1) == 1; import os"]),
             ("def f(x):\n    return x", tests[:5] + [7]),
+            ("def f(x):\n    return 0", ["assert f is not None, 'case 1'"] * 6),
+            ("def f(x):\n    return x", tests[:5] + ["assert callable(f)"]),
         ]:
             with self.assertRaises(ValueError, msg=(bad_code, bad_tests)):
                 a.check_answer("f", bad_code, bad_tests)
+        # A test that calls f inside another expression still calls it.
+        a.check_answer(
+            "f", "def f(x):\n    return x", tests[:5] + ["assert abs(f(-1)) == 1"]
+        )
+
+    def test_solution_must_keep_the_given_signature(self):
+        stub = 'def f(x: int) -> int:\n    """Doc.\n\n    >>> f(1)\n    1\n    """'
+        tests = [f"assert f({n}) == {n}" for n in range(6)]
+        a.check_answer("f", "def f(x: int) -> int:\n    return x", tests, stub)
+        a.check_answer("f", "def f(x, y=0):\n    return x", tests, None)  # describe
+        for changed in (
+            "def f(x, y=0)",
+            "def f(x)",
+            "def f(x: int) -> str",
+            "def f(n: int) -> int",
+        ):
+            with self.assertRaises(ValueError, msg=changed) as caught:
+                a.check_answer("f", changed + ":\n    return x", tests, stub)
+            self.assertEqual(
+                str(caught.exception), "solution changed the given signature"
+            )
 
     # ---- stage 3 (local interpreter instead of Docker)
 
@@ -324,6 +356,53 @@ class StageTest(unittest.TestCase):
         self.assertFalse(v.judge(LOCAL_RUNNER, question, answer)["passed"])
         answer["tests"].append("assert f(-2) == 2")
         self.assertTrue(v.judge(LOCAL_RUNNER, question, answer)["passed"])
+
+    def test_complete_questions_must_pass_their_docstring_examples(self):
+        stub = 'def f(x: int) -> int:\n    """Double x.\n\n    >>> f(3)\n    6\n    """'
+        question = {"form": "complete", "entry_point": "f", "code": stub}
+        wrong = {
+            "code": "def f(x: int) -> int:\n    return x + 2",
+            "tests": ["assert f(2) == 4"],
+        }
+        result = v.judge(LOCAL_RUNNER, question, wrong)
+        self.assertEqual(
+            (result["passed"], result["reason"]), (False, "a docstring example fails")
+        )
+        right = {
+            "code": "def f(x: int) -> int:\n    return x * 2",
+            "tests": ["assert f(2) == 4"],
+        }
+        self.assertTrue(v.judge(LOCAL_RUNNER, question, right)["passed"])
+        # A docstring with no example cannot pass: the program checks tries > 0.
+        question["code"] = 'def f(x: int) -> int:\n    """Double x."""'
+        self.assertFalse(v.judge(LOCAL_RUNNER, question, right)["passed"])
+
+    def test_retry_must_pass_the_test_that_rejected_the_earlier_attempt(self):
+        question = {"form": "describe"}
+        first = {"code": "def f(x):\n    return x", "tests": ["assert f(3) == 6"]}
+        earlier = v.judge(LOCAL_RUNNER, question, first)
+        self.assertEqual(earlier["failed_test"], "assert f(3) == 6")
+        # The retry drops the test that caught it and passes its own new test.
+        sneaky = {
+            "code": "def f(x):\n    return 4 if x == 2 else x",
+            "tests": ["assert f(2) == 4"],
+        }
+        result = v.judge(LOCAL_RUNNER, question, sneaky, earlier)
+        self.assertEqual(
+            (result["passed"], result["reason"], result["failed_test"]),
+            (
+                False,
+                "still fails the test that rejected the earlier attempt",
+                "assert f(3) == 6",
+            ),
+        )
+        honest = {"code": "def f(x):\n    return 2 * x", "tests": ["assert f(2) == 4"]}
+        self.assertTrue(v.judge(LOCAL_RUNNER, question, honest, earlier)["passed"])
+        self.assertTrue(
+            v.judge(LOCAL_RUNNER, question, honest, {"passed": False})["passed"]
+        )
+        with mock.patch.object(v, "KEEP_FAILED_TEST", False):
+            self.assertTrue(v.judge(LOCAL_RUNNER, question, sneaky, earlier)["passed"])
 
     def test_container_gets_no_network_or_writable_disk(self):
         mock.patch.stopall()
@@ -378,6 +457,8 @@ class StageTest(unittest.TestCase):
         report = c.load_json(self.root / "report.json")
         self.assertEqual(report["counts"]["accepted"], 40)
         self.assertGreater(report["usd_per_accepted"], 0)
+        # Accepted on its retry, but its first failure still shows in the tally.
+        self.assertEqual(report["failed_attempt_reasons"], {"AssertionError": 1})
 
     def test_two_failures_end_the_question(self):
         self.args.questions = 10
@@ -385,8 +466,9 @@ class StageTest(unittest.TestCase):
         always_wrong = FakeClient(
             lambda prompt: {
                 "code": "def "
-                + re.search(r"must\s+define `(\w+)`", prompt).group(1)
-                + "(x):\n    return 0",
+                + (name := re.search(r"must\s+define `(\w+)`", prompt).group(1))
+                + signature(name, prompt)
+                + ":\n    return 0",
                 "tests": [
                     f"assert {re.search(r'must\s+define `(\w+)`', prompt).group(1)}({n}) == {n + 1}"
                     for n in range(6)
@@ -398,7 +480,34 @@ class StageTest(unittest.TestCase):
             self.quietly(v.verify, self.args)
         self.assertEqual(len(always_wrong.requests), 20)
         self.assertEqual(c.read_jsonl(self.root / "accepted.jsonl"), [])
-        self.assertEqual(c.load_json(self.root / "report.json")["counts"]["failed"], 10)
+        report = c.load_json(self.root / "report.json")
+        self.assertEqual(report["counts"]["failed"], 10)
+        # Both attempts of all 10 questions failed their own tests.
+        self.assertEqual(report["failed_attempt_reasons"], {"AssertionError": 20})
+
+    def test_changed_signatures_are_rejected_and_reported(self):
+        self.args.questions = 10
+        self.quietly(q.collect, FakeClient(fake_questions), self.args)
+        questions = c.read_jsonl(self.root / "questions.jsonl")
+        complete = sum(row["form"] == "complete" for row in questions)
+        self.assertGreater(complete, 0)
+        plain = FakeClient(  # Always answers with def name(x), dropping the hints.
+            lambda prompt: fake_answers()(prompt.replace(": int) -> int", ")"))
+        )
+        self.quietly(a.collect, plain, self.args)
+        self.quietly(v.verify, self.args)
+        answers = [c.load_json(p) for p in (self.root / "answers").glob("*.json")]
+        rejected = [r for r in answers if r["status"] == "rejected"]
+        self.assertEqual(len(rejected), 2 * complete)  # First answer and the retry.
+        self.assertTrue(
+            all(r["reason"] == "solution changed the given signature" for r in rejected)
+        )
+        report = c.load_json(self.root / "report.json")
+        self.assertEqual(report["accepted"], 10 - complete)
+        self.assertEqual(
+            report["failed_attempt_reasons"],
+            {"solution changed the given signature": 2 * complete},
+        )
 
     def test_command_line_dry_runs_and_budget_exit(self):
         text = self.quietly(
