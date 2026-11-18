@@ -33,7 +33,7 @@ Reviewed selectively: **“First tiny Python coding RL run”**, thread `01a1c39
 
 ## Reference roadmap: earlier proposals, not immediate requirements
 
-The notes below preserve longer-term research ideas from the initial planning discussion. Their example counts, hyperparameters, hardware assumptions, and benchmark plans are **provisional references**. They must not override the current scope and collaboration instructions above. [FIRST_SFT.md](FIRST_SFT.md) is also an older walkthrough; its tiny dataset sizes and “scripts do not exist” status text are superseded by this handoff. Recheck time-sensitive software support and cloud prices before using those notes.
+The notes below preserve longer-term research ideas from the initial planning discussion. Their example counts, hyperparameters, hardware assumptions, and benchmark plans are **provisional references**. They must not override the current scope and collaboration instructions above. [FIRST_SFT.md](initial/FIRST_SFT.md) is also an older walkthrough; its tiny dataset sizes and “scripts do not exist” status text are superseded by this handoff. Recheck time-sensitive software support and cloud prices before using those notes.
 
 ## Goal and comparison rules
 

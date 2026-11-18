@@ -25,11 +25,12 @@ EOS = "<|im_end|>"
 MAX_LENGTH = 1024  # Prompt + completion tokens. Must match the trainer.
 # How many rows to take from each source. The order matters: when two rows
 # repeat each other, the source listed first keeps its row.
+# educational_instruct (S1's data) was dropped from S2 by user decision on
+# November 17, 2026; its collector adapter is kept but the build ignores it.
 QUOTAS = {
-    "deepseek": 30_000,
-    "opencode": 120_000,
+    "deepseek": 30_000,  # Takes all accepted rows (3,071 so far).
+    "opencode": 200_000,
     "selfoss": 40_000,
-    "educational": 50_000,
 }
 DEV_ROWS = 1000  # Tested rows kept out of training, for choosing a checkpoint.
 SIMILAR = 0.6  # Word overlap above which two same-named tasks are repeats.
@@ -57,7 +58,7 @@ def main_name(code):
 def add_training_text(rows, tokenizer, reasons):
     """Add the exact prompt and completion strings, and drop rows that are too long.
 
-    Same format as init_prepare.py: the instruction as a user message ending
+    Same format as initial/init_prepare.py: the instruction as a user message ending
     with the assistant header, and the code followed by the end marker.
     """
     kept = []
@@ -83,7 +84,7 @@ def add_training_text(rows, tokenizer, reasons):
     return kept
 
 
-def drop_repeats(rows, reasons):
+def drop_repeats(rows, reasons, name_cap=NAME_CAP):
     """Remove exact repeats, near repeats, and overused function names."""
     seen_text, seen_code, by_name, kept = set(), set(), {}, []
     for row in rows:
@@ -93,7 +94,7 @@ def drop_repeats(rows, reasons):
         same_name = by_name.setdefault(row["name"], [])
         if text in seen_text or code in seen_code:
             reason = "exact repeat"
-        elif len(same_name) >= NAME_CAP:
+        elif len(same_name) >= name_cap:
             reason = "function name used too often"
         elif any(overlap(row_words, other) >= SIMILAR for other in same_name):
             reason = "near repeat"
@@ -168,7 +169,8 @@ def build(args):
     tokenizer = AutoTokenizer.from_pretrained(TOKENIZER, local_files_only=True)
     rows = add_training_text(rows, tokenizer, reasons)
     record("fits length", rows)
-    rows = drop_repeats(rows, reasons)
+    name_cap = getattr(args, "name_cap", NAME_CAP)
+    rows = drop_repeats(rows, reasons, name_cap)
     record("after repeats", rows)
     if args.skip_benchmark_audit:
         audit = "NOT RUN"
@@ -213,6 +215,7 @@ def build(args):
     report = {
         "rows_per_source_at_each_step": stages,
         "quotas": QUOTAS,
+        "name_cap": name_cap,
         "removed": dict(sorted(reasons.items())),
         "benchmark_check": audit,
         "train_tokens_total": sum(lengths),
@@ -225,7 +228,7 @@ def build(args):
     save_json(args.output / f"{args.name}-report.json", report)
     print(json.dumps(report, indent=2))
     print(
-        f'\nTrainer data: {splits}\nSet DATA in init_trainsft.py to "data/{args.name}-splits".'
+        f'\nTrainer data: {splits}\nSet DATA in train_torch.py to "data/{args.name}-splits".'
     )
 
 
@@ -237,6 +240,12 @@ def main(argv=None):
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--output", type=Path, default=OUTPUT)
     parser.add_argument("--skip-benchmark-audit", action="store_true")
+    parser.add_argument(
+        "--name-cap",
+        type=int,
+        default=NAME_CAP,
+        help=f"Most rows that may define one function name (default {NAME_CAP})",
+    )
     args = parser.parse_args(argv)
     try:
         build(args)

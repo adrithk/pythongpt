@@ -4,25 +4,32 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from trl import SFTConfig, SFTTrainer
 
 if not torch.cuda.is_available():
-    raise RuntimeError("PyTorch cannot see the PC GPU.")
+    raise RuntimeError("PyTorch cannot see a GPU. Run this on the rented machine.")
 
 device = torch.device("cuda")
-print("GPU:", torch.cuda.get_device_name(0))
-print("ROCm version:", torch.version.hip)
+gpu_memory = torch.cuda.get_device_properties(0).total_memory / 1e9
+print("GPU:", torch.cuda.get_device_name(0), f"({gpu_memory:.0f} GB)")
 
-# ---- Recipe 2 (November 14). S1 used: 512 tokens, 1 epoch, LR 2e-5, no warmup,
-# effective batch 16, output runs/initial-sft. Git history has that version.
+# ---- Recipe 2 (November 14), set up for a rented 80 GB NVIDIA GPU (November 15).
+# S1 used: 512 tokens, 1 epoch, LR 2e-5, no warmup, effective batch 16, output
+# runs/initial-sft. Git history has that version and the 16 GB PC version.
 DATA = "data/sft-splits"  # Still the S1 data. Point this at the new mix later.
 OUTPUT = "runs/sft-recipe2"  # A new folder, so S1's files are never overwritten.
 MAX_LENGTH = 1024  # Prompt + completion tokens; longer examples are dropped.
 EPOCHS = 3
 LEARNING_RATE = 5e-5  # The peak value, reached after WARMUP_STEPS.
 WARMUP_STEPS = 100
-# Memory: MICROBATCH examples are on the GPU at once. Weights, gradients and
-# optimizer state already use about 8 GB in float32, so keep this small.
-# Raise it to 2 only after watching GPU memory on a short run.
-MICROBATCH = 1
+# Memory: MICROBATCH examples are on the GPU at once. The big cost is the
+# output layer: 151,936 scores for every token. For 16 examples of 1,024
+# tokens the estimate is about 65 GB at the worst moment, counting the
+# layers' saved values as well (arithmetic, not measured).
+# On a 48 GB card use 8; on a 24 GB card use 4. Training is equivalent,
+# because EFFECTIVE_BATCH decides how many examples go into each update.
+MICROBATCH = 16
 EFFECTIVE_BATCH = 64  # Examples per weight update.
+# To continue a run that was cut off, put a checkpoint folder here, for
+# example "runs/sft-recipe2/checkpoint-2500". None starts from the beginning.
+RESUME = None
 
 splits = load_from_disk(DATA)
 
@@ -68,7 +75,7 @@ settings = SFTConfig(
     output_dir=OUTPUT,
     num_train_epochs=EPOCHS,
     per_device_train_batch_size=MICROBATCH,
-    per_device_eval_batch_size=1,
+    per_device_eval_batch_size=MICROBATCH,
     gradient_accumulation_steps=EFFECTIVE_BATCH // MICROBATCH,
     learning_rate=LEARNING_RATE,
     warmup_steps=WARMUP_STEPS,
@@ -77,12 +84,13 @@ settings = SFTConfig(
     completion_only_loss=True,
     eos_token="<|im_end|>",
     packing=False,
-    gradient_checkpointing=True,
-    gradient_checkpointing_kwargs={"use_reentrant": False},
+    # Checkpointing trades speed for memory. An 80 GB card does not need it.
+    gradient_checkpointing=False,
     optim="adamw_torch",
+    # The weights stay float32. bf16 runs the forward pass in 16-bit numbers,
+    # which NVIDIA cards do much faster. The PC run was float32 throughout.
     fp16=False,
-    bf16=False,
-    dataloader_pin_memory=False,
+    bf16=True,
     logging_steps=10,
     logging_strategy="steps",
     eval_strategy="steps",
@@ -101,7 +109,7 @@ trainer = SFTTrainer(
     processing_class=tokenizer,
 )
 
-result = trainer.train()
+result = trainer.train(resume_from_checkpoint=RESUME)
 
 
 trainer.save_metrics("train", result.metrics)

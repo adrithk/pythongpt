@@ -148,6 +148,43 @@ class CollectTest(unittest.TestCase):
             with self.assertRaises(ValueError, msg=changes):
                 c.from_opencode(self.opencode_row(**changes))
 
+    def test_opencode_reads_local_copy(self):
+        import datasets.config
+        import pyarrow as pa
+        import pyarrow.parquet as pq
+
+        import load_opencode
+
+        rows = [self.opencode_row(id=str(n)) for n in range(20)]
+        with tempfile.TemporaryDirectory() as folder:
+            raw = Path(folder) / "raw"
+            (raw / "data").mkdir(parents=True)
+            for part in range(2):  # Two files, as if 2 of the 50 were downloaded.
+                name = f"train-{part:05d}-of-00050.parquet"
+                pq.write_table(
+                    pa.Table.from_pylist(rows[part * 10 : part * 10 + 10]),
+                    raw / "data" / name,
+                )
+            with (
+                mock.patch.object(load_opencode, "RAW", raw),
+                mock.patch.object(datasets.config, "HF_DATASETS_CACHE", folder),
+            ):
+                in_order, printed = quietly(
+                    lambda: [r["id"] for r in c.stream("opencode", 0, False)]
+                )
+                mixed = [
+                    r["id"] for r in quietly(list, c.stream("opencode", 0, True))[0]
+                ]
+                again = [
+                    r["id"] for r in quietly(list, c.stream("opencode", 0, True))[0]
+                ]
+        self.assertEqual(in_order, [str(n) for n in range(20)])
+        self.assertIn("Reading 2 of 50", printed)
+        self.assertIn("Not all files", printed)
+        self.assertNotEqual(mixed, in_order)
+        self.assertEqual(sorted(mixed, key=int), in_order)
+        self.assertEqual(mixed, again)  # Same seed, same order.
+
     def test_selfoss_rows(self):
         raw = {
             "id": 165808,

@@ -214,7 +214,8 @@ class StageTest(unittest.TestCase):
         self.assertEqual({q.plan_batch(n, skills, 0)[0] for n in range(7)}, set(skills))
         slots = [slot for n in range(200) for slot in q.plan_batch(n, skills, 0)[1]]
         share = sum(slot["form"] == "describe" for slot in slots) / len(slots)
-        self.assertAlmostEqual(share, 0.60, delta=0.05)
+        expected = q.FORMS["describe"] / sum(q.FORMS.values())
+        self.assertAlmostEqual(share, expected, delta=0.05)
         self.assertTrue(all(slot["level"] in q.LEVELS for slot in slots))
 
     def test_real_skill_list_loads_without_repeats(self):
@@ -446,8 +447,8 @@ class StageTest(unittest.TestCase):
         self.assertEqual(len(rows), 40)
         row = next(row for row in rows if row["entry_point"] == unlucky)
         self.assertEqual(
-            (row["attempt"], row["response"]),
-            (1, f"def {unlucky}(x):\n    return x + 1"),
+            (row["attempt"], row["response"].split(":\n")[-1]),
+            (1, "    return x + 1"),  # The signature depends on the question's form.
         )
         self.assertEqual(
             set(rows[0])

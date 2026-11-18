@@ -68,7 +68,7 @@ Here, “whole dataset” means all rows of `educational_instruct`, not automati
 
 ## Current saved implementation
 
-The project has been separated into **[init_prepare.py](init_prepare.py)** for preparation, **[init_inspect.py](init_inspect.py)** for checks on saved data, and **[init_trainsft.py](init_trainsft.py)** as an empty training placeholder. The former `tiny_initial_sft.py` was renamed to `init_prepare.py`; use the new names. Existing overlap-check code was moved into the inspection file, with loading from disk, rather than rebuilding preparation on every check. The user reports downloading the original model into **`models/qwen-base`** using Hugging Face CLI.
+The project has been separated into **[init_prepare.py](initial/init_prepare.py)** for preparation, **[init_inspect.py](initial/init_inspect.py)** for checks on saved data, and **[init_trainsft.py](initial/init_trainsft.py)** as an empty training placeholder. The former `tiny_initial_sft.py` was renamed to `init_prepare.py`; use the new names. Existing overlap-check code was moved into the inspection file, with loading from disk, rather than rebuilding preparation on every check. The user reports downloading the original model into **`models/qwen-base`** using Hugging Face CLI.
 
 As of this snapshot, the saved script:
 
@@ -113,7 +113,7 @@ Basic RL, full benchmark suites, advanced curation, teacher distillation, datase
 
 ## Reference roadmap: earlier proposals, not immediate requirements
 
-The notes below preserve longer-term research ideas from the initial planning discussion. Their example counts, hyperparameters, hardware assumptions, and benchmark plans are **provisional references**. They must not override the current scope and collaboration instructions above. [FIRST_SFT.md](FIRST_SFT.md) is also an older walkthrough; its tiny dataset sizes and “scripts do not exist” status text are superseded by this handoff. Recheck time-sensitive software support and cloud prices before using those notes.
+The notes below preserve longer-term research ideas from the initial planning discussion. Their example counts, hyperparameters, hardware assumptions, and benchmark plans are **provisional references**. They must not override the current scope and collaboration instructions above. [FIRST_SFT.md](initial/FIRST_SFT.md) is also an older walkthrough; its tiny dataset sizes and “scripts do not exist” status text are superseded by this handoff. Recheck time-sensitive software support and cloud prices before using those notes.
 
 ## Goal and comparison rules
 

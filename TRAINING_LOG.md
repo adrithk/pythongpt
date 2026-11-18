@@ -343,3 +343,160 @@ Changes, written by a delegated Opus 5.5 agent from a fixed brief and reviewed l
 Not adopted: a separate test-writing API call per question with tests fixed during repair. Reasons given: roughly double the answer-stage spend, the same model still writes both sides so independence is partial, and wrong hand-computed expected values would discard correct solutions. The docstring-example check and the earlier-test rule are the no-cost substitutes. Known trade-off: the earlier-test rule also drops correct retries when the first test was the wrong part.
 
 Verified on the Mac: `python -m unittest discover -s tests` runs 63 tests, all pass (59 earlier plus 4 new test methods); Ruff check and format clean on the four changed Python files (Homebrew Ruff 0.16.5; Ruff is not installed in .venv); the three reproductions are now rejected; the questions dry-run still works. Not verified: any paid API call, any real Docker run (the docstring-example program has run only under the local interpreter, not in python:3.12-slim), how often each rule fires on real teacher output, pass rates, cost per accepted row, data quality. Nothing committed.
+
+### November 15, 2026 — First real Docker check and first paid questions stage (Mac pilot)
+
+User installed Docker Desktop on the Mac (engine 29.9.3, image python:3.12-slim, arm64) and asked the assistant to start a small paid pilot; the user typed the DeepSeek key at the hidden prompt in the Terminal panel.
+
+Real container check (assistant-authored fixtures only, no model output): nine cases through `distill_verify.judge` with the real `docker run` command, all judged as expected: correct and wrong plain answers, complete-form docstring examples passing and failing, fix-form tests catching and missing the bug, the retry rule, an endless loop stopped at the 10 s limit, and no network or writable disk inside the container. This is the first real Docker run of the verifier; about 0.2–0.3 s per row.
+
+Questions stage: `python distill_questions.py --questions 50 --budget-usd 1 --output data/distill-pilot` (default weights describe 60 / complete 25 / fix 15, seed 0, effort low). A first attempt failed with AuthenticationError on all five calls (key rejected; five USD 0.02 reservations kept in the script's own accounting, not charged). Second attempt: 5 calls, 48 of 50 questions kept (33 describe, 9 complete, 6 fix; 18 easy, 21 medium, 9 hard); the 2 rejects were "too similar to an earlier question", both in the bit-manipulation batch. Token use per call 6,243–14,171 completion tokens, of which 4,859–11,704 reasoning, despite low effort; the largest came within about 2,200 tokens of the 16,384 allowance. Computed cost at peak prices USD 0.056 (about USD 0.0012 per kept question). Calls took roughly 1 to 11 minutes each.
+
+Assistant read all 48 questions (judgement, not a measurement): clear and well specified, stubs are HumanEval-shaped with `>>>` examples. Problems seen: one of nine complete stubs has a wrong docstring example (q00001_1 group_pairs_by_parity_sum puts (3, 4) under even and (5, 5) under odd), which the docstring-example check should reject; q00004_4 contains_deep has contradictory rules for an empty structure; within a narrow skill several of the ten questions are near-variants (deep merge with right winning appears twice; several toggle/apply-bit tasks), which the word-overlap check only partly catches; some difficulty labels look off; fix-form text is phrased as "Write a function" before the bug sentence. No answers generated yet; no pass rate or cost per accepted row exists.
+
+### November 15, 2026 — Pilot answers and first real verification of model output
+
+Answers stage on the 48 pilot questions (`distill_answers.py --budget-usd 1 --output data/distill-pilot`, effort high, user entered the key): 47 answers saved; q00000_6 format_table returned no usable JSON in two paid attempts (cause not inspected). 49 answer calls, 187,645 completion and 20,225 prompt tokens, average 3,829 completion tokens per call; computed cost at peak prices USD 0.231.
+
+Verification in real Docker (`distill_verify.py --output data/distill-pilot`, run by the assistant): 45 of 47 passed on the first attempt, so 45 of 48 questions accepted with no retries run. The two failures were both AssertionError: q00001_1, where the answer copied the stub's wrong docstring example into its tests (the question flagged earlier as having a wrong example), and q00000_8 count_words_with_uppercase. Accepted by form: 8 complete, 5 fix, 32 describe. Median solution length 8 lines (max 35), mean 9.3 tests per row.
+
+Cost: questions USD 0.056 plus answers USD 0.231 = USD 0.287 for 45 accepted rows, about USD 0.0064 per accepted row at peak prices. report.json shows 0.00865 because the script's accounting still holds reservations from the rejected-key attempt and the failed format_table calls. This is one 5-skill sample; pass rate and cost on other skills are unmeasured.
+
+Assistant audit (reading, not execution): all 8 complete, all 5 fix, the 5 hard describe rows and contains_deep were read against their questions; no wrong solution found. The other 26 easy and medium describe rows were not read line by line. Quality notes: allocate_amount passed but is a 30-line Decimal-context solution to an over-specified float problem, a poor example for a small model; the merge_settings fix rewrote more than the bug. Complete-form answers keep the signature and omit the docstring as instructed.
+
+User decisions the same day: generate about 5,000 DeepSeek rows rather than 30,000 because of cost. Assistant recommendation, not yet acted on: raise the complete-form weight for that run.
+
+### November 15, 2026 — Trainer set up for a rented NVIDIA GPU (no run)
+
+User decision: work from the Mac and train on rented Vast.ai GPUs, most likely H100s, rather than the PC. User also asked whether OpenCodeInstruct is already saved locally.
+
+Inspected on the Mac: `~/.cache/huggingface/hub/datasets--nvidia--OpenCodeInstruct` is 12 KB and holds only README.md (left by the 400-row streaming trial on November 14); `data/curated` does not exist. So no OpenCodeInstruct rows are saved; `curate_collect.py opencode` streams them from the Hub when run. Local data folders are `data/sft-splits` and `data/prepared-sft` (S1), `data/distill-pilot` and `data/deepseek-candidates`. `evalplus` is not installed in the Mac `.venv` (torch 2.15.0, Transformers 4.57.3, TRL 0.25.1, Datasets 4.4.1, Accelerate 1.12.0 are). `models/qwen-base` download metadata records Hub revision 8123ea2e9354afb7ffcc6c8641d1b2f5ecf18301.
+
+Edits to `init_trainsft.py` (recipe values unchanged): GPU check message and print no longer mention the PC or ROCm and now print GPU memory; MICROBATCH 1 -> 16 with accumulation 64 -> 4 (EFFECTIVE_BATCH 64 unchanged); evaluation batch 1 -> 16; gradient checkpointing on -> off; `bf16` False -> True (model still loaded in float32); `dataloader_pin_memory=False` removed; new `RESUME = None` constant passed as `resume_from_checkpoint`. The earlier 16 GB PC settings are in Git history (1e3b081).
+
+Memory reasoning, not measured: pinned Transformers upcasts logits to float32 inside the loss (`ForCausalLMLoss`), and TRL's entropy metric is computed in chunks. For 16 x 1,024 tokens x 151,936 scores, the bf16 logits are about 5 GB, the float32 copy about 10 GB, and log-softmax plus gradients bring an estimated worst case of 40-50 GB. This is why MICROBATCH is 16 rather than 32 on an 80 GB card.
+
+Verified on the Mac: syntax, Ruff check and format, and `SFTConfig` constructs with the new values (bf16 True, accumulation 4). Not verified: any CUDA or H100 run, memory use, speed, bf16 behaviour, resuming, the Vast.ai steps in the new CLOUD.md, or cost. Third-party price trackers read the same day put Vast.ai H100s at roughly USD 1.50-2.80 per hour on-demand with interruptible about half; marketplace prices, not a quote.
+
+Also asked, no change made: using plain PyTorch instead of Hugging Face Transformers. Advice given: hand-write the training loop in PyTorch while keeping the Hugging Face model class and tokenizer, and check it against SFTTrainer on one batch; treat re-implementing the Qwen architecture as a separate exercise verified by matching logits, not part of the paid S2 run. User has not decided.
+
+Later the same day the user chose to hand-write the training loop in plain PyTorch (`train_torch.py`, to be typed by the user). Steps 1-2 (encoding one row; padding into a batch) were explained. Assistant check on the Mac, S1 data: for the first 2,000 training rows the tokenized prompt is always an exact prefix of the tokenized prompt+completion, and a hand-written collate function gives tensors equal to TRL 0.25.1's `DataCollatorForLanguageModeling(completion_only_loss=True)` for the first four rows. First row: 236 tokens, 75 masked, final token `<|im_end|>`. No model was loaded and nothing was trained.
+
+### November 15, 2026 — Finished-run files moved into `initial/`
+
+User asked for files no longer needed after the first run to be gathered into one folder. Moved with `git mv` (nothing deleted, not committed): init_prepare.py, init_inspect.py, FIRST_SFT.md, deepseek_distill.py, deepseek_pipeline.py, DEEPSEEK_DISTILL.md, DEEPSEEK_PIPELINE.md, DISTILLATION_PLAN.md into `initial/`, and tests/test_deepseek_distill.py and tests/test_deepseek_pipeline.py into `initial/tests/`. Added initial/README.md. No remaining script imports any moved file (checked by grep before moving). Links in README.md, EXPERIMENT_PLAN.md, SFT_DATASET_RESEARCH.md, CURATE.md, DISTILL_STAGES.md and a comment in curate_build.py were pointed at the new paths; historical log entries were left as written.
+
+Checked after the move: `python -m unittest discover -s tests` runs 32 tests, all pass; from `initial/`, the same command runs 31 tests, all pass with 1 skipped. Untracked local folders (`runs/`, `data/`) were not moved or deleted.
+
+### November 15, 2026 — Old trainer archived; distillation files left in place
+
+User request: init_trainsft.py moved to `initial/` with `git mv` (the user will train with a hand-written `train_torch.py`; no runnable trainer exists in the main folder until that is finished). CLOUD.md, CURATE.md and curate_build.py's final message now name train_torch.py.
+
+The user also asked for the distillation files to be moved into a folder, then, while that was under way, said to leave them because they are in use. The move to `distill/` had been made with the code changes it needed; all of it was undone the same hour: files back in the main folder, `ROOT` and the skills-file path restored, the `sys.path` lines removed from the curate scripts, and the guide's commands restored. Not committed at any point.
+
+Checked after undoing: `python -m unittest discover -s tests` from the main folder runs 32 tests, all pass; from `initial/`, 31 pass (1 skipped); Ruff clean; distill_common.py, distill_answers.py and distill_verify.py are identical to the last commit.
+
+### November 15, 2026 — Row lengths and batch-size limits (Mac measurement, no GPU)
+
+Question from the user: can more than 16 examples be processed at once on the rented GPU. Tokenized all of `data/sft-splits` train (prompt + completion, Qwen tokenizer): 117,224 rows, 9 over 1,024 tokens. For the 117,215 others: mean 142, median 123, 90th percentile 237, 99th 413, 99.9th 593, longest 902; 7.56% are over 256 tokens, 0.29% over 512.
+
+Simulated one shuffled pass (seed 0), counting padded positions as rows x longest row:
+
+| Rows at once | Median padded | 99th pct | Largest | Share that is padding |
+| ---: | ---: | ---: | ---: | ---: |
+| 16 | 4,752 | 10,208 | 14,432 | 55% |
+| 32 | 11,200 | 22,720 | 28,864 | 62% |
+| 64 | 26,112 | 48,064 | 57,728 | 67% |
+
+A group of 64 rows holds a median 9,043 real tokens (largest 11,388). Sorting each group of 64 by length and cutting at 16,384 padded positions gives 2 chunks per update almost always, with 47% padding.
+
+Memory per padded position is the assistant's arithmetic, not a measurement: about 1.4 MB for values saved by the 24 layers in bf16 and about 2.1 MB for output scores, the float32 copy and the loss, plus about 8 GB for weights, gradients and optimizer state. On that basis the earlier "40-50 GB for 16 x 1,024" was too low (it left out the layer values); about 65 GB is the corrected estimate. This is S1 data; the S2 mix may have longer rows.
+
+### November 15, 2026 — Two-H100 Vast listing reviewed (no rental)
+
+User asked whether to rent the pictured offer: 2x H100 SXM, displayed 80 GB VRAM per GPU, USD 3.578/hour plus bandwidth, 30.5 GB disk, verified host, displayed reliability 99.0%. Recommendation: a single 80 GB H100 suits the planned loop; a second GPU needs distributed training to contribute and does not automatically pool memory. Increase disk to about 80-100 GB for the planned checkpoints. At the pictured rate, 10 running hours is USD 35.78 before bandwidth and any changes to storage pricing; this is arithmetic, not a runtime estimate or a live quote. Vast official pricing documentation checked: https://docs.vast.ai/guides/instances/pricing — compute, storage and transfer charges apply; storage continues while stopped. Corrected CLOUD.md's overly broad claim that a 0.5B model cannot gain from multiple GPUs.
+
+Read-only reinspection: train_torch.py now has encode/collate and temporary checks, still DATA=data/sft-splits; no model forward, optimizer, evaluation or checkpoint loop is saved yet. Complete the trainer and S2 preparation before starting paid compute. No rental, spending, install, GPU run, commit or push occurred.
+
+### November 15, 2026 — Training-loop teaching scope clarified
+
+User initially requested full PyTorch code, then clarified: put code in chat for them to understand and type, and provide only the training loop. Reinspection finds DATA consistently uppercase, encode/collate and temporary checks saved, but no model, optimizer or loop. No project Python file was edited by this assistant.
+
+Checks outside the checkout: encoding/padding with the real local Qwen tokenizer matches TRL's completion-only collator on eight S1 rows. On a tiny randomly initialized Qwen fixture, completion-token-weighted accumulation across three unequal chunks matches a full batch's loss and gradients. A CPU-adapted prototype's interrupted/resumed result exactly matches uninterrupted parameters, including resuming within an epoch and checkpoint retention. These checks do not validate CUDA, bf16, GPU memory/performance, or the user's unfinished trainer. No pretrained weights were loaded, packages/models downloaded, or project training run started.
+
+### November 15, 2026 — Conditional S2 rental cost calculation
+
+For the user's cost follow-up, used the current source targets (120K OpenCodeInstruct + 40K self-oss + 50K educational + about 5K DeepSeek = 215K rows before holdout/filter shortfalls), three epochs and effective batch 64: approximately 10,079 optimizer updates. At the pictured USD 3.578/hour, hypothetical 1/2/4 seconds per complete optimizer update gives 2.8/5.6/11.2 training hours and USD 10.02/20.03/40.07. These speeds are sensitivity inputs, not H100 measurements or a claimed expected range. Setup, evaluation, checkpointing, benchmark generation and transfers add time/cost; disk allocation and host transfer rates remain unknown. Next estimate should time representative complete updates including accumulation on the actual S2 data. Vast official pricing page rechecked. No spend authorized or performed.
+
+### November 15, 2026 — Single H100 NVL offer and correction of disk interpretation
+
+User screenshot: 1x H100 NVL, 94 GB VRAM, USD 2.943/hour plus bandwidth, Bulgaria, verified, 95.3% historical reliability, 3,484.9 GB available disk. About 17.75% lower hourly price than the previous 2x SXM offer; six/ten hours at the pictured rate cost USD 17.66/29.43, not runtime forecasts. Single GPU fits the intended loop; no throughput comparison measured. Prefer a similarly priced 99%+ host if available for the first training run; this threshold is advice, not an uptime guarantee.
+
+Material correction to earlier assistant advice: Vast official offer-card documentation says the disk number is maximum available capacity, not the instance allocation. Thus the earlier 30.5 GB figure was incorrectly described as allocated disk. Allocate about 80-100 GB with the storage slider and inspect the resulting price/bandwidth rates. Source: https://docs.vast.ai/guides/instances/choosing/find-and-rent.md (also defines reliability as historical uptime/health and price as GPU plus allocated storage). NVIDIA H100 product page checked for NVL specifications. No rental, spending, run, commit or push occurred.
+
+### November 15, 2026 — H100 optimization teaching, no GPU run
+
+Inspected saved train_torch.py: user has added a draft model.train/epoch/batch/forward/backward/clip/step loop with bf16 autocast and finite loss/gradient checks. Still missing model, device, DataLoader and optimizer initialization, accumulation, schedule, evaluation and saving. It steps every batch as written. No implementation edits made.
+
+Recommended baseline for either pictured H100: template-provided compatible CUDA PyTorch, FP32 parameters plus bf16 autocast, attn_implementation=sdpa, use_cache=False, fused=True AdamW with explicit weight_decay=0 to preserve the reference trainer's default, pre-tokenization and length grouping/padded-token budgeting, effective batch 64, gradient checkpointing off only if worst-batch memory permits. SDPA can use fused flash attention but actual dispatch depends on masks/dtypes/shapes/backend versions; the locally installed Transformers 4.57.3 SDPA integration was inspected. Compare optional external FlashAttention and torch.compile against a working baseline rather than claiming speedups; variable shapes can add compile overhead. Time complete optimizer updates after warmup with CUDA synchronization, peak memory and nonpadding tokens/sec. No CUDA runtime, flash kernel, speed, memory or accuracy equivalence verified.
+
+Official sources checked: https://docs.pytorch.org/docs/2.15/generated/torch.nn.functional.scaled_dot_product_attention.html ; https://docs.pytorch.org/docs/2.15/generated/torch.optim.AdamW.html ; https://docs.pytorch.org/tutorials/recipes/recipes/amp_recipe.html ; https://github.com/Dao-AILab/flash-attention . No install, training, rental, spend, commit or push.
+
+### November 15, 2026 — Learning-rate recommendation versus an optimum
+
+User asked whether settings such as 5e-5 are optimal. Rechecked saved train_torch.py: it has the draft loop, EPOCHS=3, bf16 and gradient clipping at 1.0, but no optimizer/learning-rate initialization, scheduler or accumulation yet. Rechecked OpenCoder section 4.3 (https://arxiv.org/html/2411.04905v1#S4.SS3): stage 2 used LR 5e-5, 100 warmup updates, cosine decay, 3 epochs and batch 512. This supports a starting recipe, not a measured optimum for our 0.5B model/data/effective batch 64. No hyperparameter comparison, GPU run or implementation change occurred. Explain that Python 5e-5 means 0.00005; learning rate is configured in the optimizer, and warmup/decay require a scheduler.
+
+### November 15, 2026 — First full DeepSeek run on the Mac (budget USD 23, user decision)
+
+Form weights changed first at the user's request to describe 30 / complete 55 / fix 15; two offline tests that hard-coded the old share now follow FORMS; 63 tests pass. User set a total budget of USD 23 and entered the key for each paid stage; commands were started by the assistant in the Terminal panel with a folder ceiling of USD 22, output `data/distill`, 16 workers.
+
+Questions (`--questions 3200`): 313 of 320 batches returned (7 failed, not retried); 3,011 questions kept (1,646 complete, 901 describe, 464 fix; 1,080 easy, 1,351 medium, 580 hard) over 233 skills; 110 rejected as too similar, 9 for malformed docstrings or invalid Python. Computed cost USD 3.65.
+
+Answers (effort high): 2,982 answers saved; 29 questions got no usable JSON reply in two attempts. Verification in real Docker (6 workers): 2,888 accepted on the first attempt (96% of questions; complete 1,545 of 1,646, describe 882 of 901, fix 461 of 464); 94 failed with one retry left. Failed-attempt reasons: 55 docstring example fails, 37 AssertionError, 1 RecursionError, 1 TypeError, 4 static rejections. Retries not yet run.
+
+Cost: 3,376 calls, USD 16.07 computed from saved token usage at peak prices (script accounting 16.50 including kept reservations), about USD 0.0056 per accepted row. Solutions: median 10 lines, 90th percentile 25, max 96, 17 over 60 lines.
+
+Assistant read six random accepted rows against their questions and found no wrong solution; this is a tiny sample, not an audit of the set. Not done: retries, a larger audit, curate steps (benchmark-lookalike check, repeat removal, token-length cut), any training on these rows.
+
+### November 16, 2026 — Top-up of the DeepSeek run and a defect found in accepted rows
+
+Top-up questions (`--questions 4000`, ceiling USD 22.3): 3,818 questions in total. The following answers stage stopped early when the session ended (not at the ceiling): 3,258 answer files, 657 questions still unanswered. Verification of what exists (real Docker, 6 workers): 3,071 accepted; 80 failed after both attempts, 10 with one retry left. Failed-attempt reasons so far: 107 docstring example fails, 58 AssertionError, 15 "still fails the test that rejected the earlier attempt", the rest static or runtime errors. Computed cost from saved token usage at peak prices: USD 19.16 for this folder (script accounting 19.91), plus about USD 0.29 for the pilot.
+
+Assistant read 10 random accepted rows (5 complete, 3 describe, 2 fix) against their questions: all 10 solutions correct. Defect found: q00073_4's answer contains a top-level helper `_close` that only its tests use, so test scaffolding is inside the training answer. A scan for top-level definitions used only by the tests is recorded in AGENTS.md. Not fixed in code yet.
+
+### November 16, 2026 — Full plain-PyTorch trainer drafted and tested off-GPU
+
+User asked for the whole train_torch.py in chat. The assistant drafted it in a scratch folder and did not edit the project file. Design: 64-row groups per update from a seeded plan; each group sorted by length and split into chunks of at most 16,000 padded positions; loss is the sum over graded tokens divided by the group's graded-token count; warmup then cosine learning rate written by hand; AdamW (weight_decay 0); clipping at 1.0 with a stop on non-finite values; validation and checkpoint every 500 updates.
+
+Mac tests (CPU, scratch copies, outputs deleted afterwards):
+
+- Miniature two-layer Qwen2 model with the real tokenizer, 120 rows, 8 rows per update, 1,500-position chunks: 15 updates, training loss 11.93 -> 11.37, validation 11.70 -> 11.34; checkpoint-5 lost its optimizer file when checkpoint-10 was saved, as designed.
+- Resume from checkpoint-10: updates 11-15 printed 11.4097, 11.3869, 11.3901, 11.3588, 11.3699 and validation 11.3421, identical to the uninterrupted run.
+- Real base model, no updates: hand-written chunk loss 0.70795 equals `model(**batch).loss`; validation loss on the first 120 validation rows 0.7211.
+- Real base model on MPS with training: three updates ran, then the fourth slowed to minutes and the first validation pass failed with an MPS out-of-memory error. Full-model training with AdamW state does not fit comfortably in 16 GB.
+
+Not tested: CUDA, bf16 autocast, real-model updates, throughput, or GPU memory at the 16,000-position cap.
+
+### November 16, 2026: OpenCodeInstruct loader trial
+
+Added load_opencode.py at the user's request. Ran `python load_opencode.py --shards 1` on the Mac: downloaded data/train-00000-of-00050.parquet (127 MB on disk) at revision 8f3ba5bafe4d6e8db46082cf7ae6741bc370604d. First file: 100,000 rows; domain generic 90,871 / algorithmic 9,129; self-instruct 73,770 / evol-instruct 26,230; average_test_score == 1 for 34,733 rows. These are counts for one file, not the whole dataset. Full download, judge-score filtering and curation from the local copy not run.
+
+### November 16, 2026: why OpenCodeInstruct rows fail curation (first file)
+
+curate_collect.convert on train-00000 (100,000 rows): kept 9,024; upstream failed test 65,267; judge below 5 25,178; non-stdlib import 317; open() 208; input() 3; too long 2; eval 1. average_test_score: 0.0 for 28,215, 1.0 for 34,733, partial 37,052. Lowest judge score per row: 5 for 23,427. edge_case_consideration is the strict criterion (5 for 23,568 vs about 79,000 for the other two). Docker rerun (python:3.12-slim, no network, 256 MB, 10 s per row, first code block plus upstream asserts, seed 7, 200 rows per group): upstream 0.0 -> 56 pass all, 2 time out, per-test agreement 1,107/1,980, top errors ModuleNotFoundError 450, FileNotFoundError 319, AssertionError 177; partial -> 1 pass all, agreement 1,953/1,970, mostly AssertionError; 1.0 -> 191 pass all, agreement 1,952/2,000. Among 34,733 test-passing rows: 9,555 have every judge score 5; 29,143 have requirement and logic at 5 with any edge-case score. Paper Table 4 numbers recorded in AGENTS.md. Scripts were scratch files, not saved in the repository.
+
+### November 16, 2026: curate_collect reads the local OpenCodeInstruct copy
+
+`python curate_collect.py opencode --output <scratch>` with 1 of 50 files on disk: 100,000 rows shuffled and filtered in 5.5 s wall time, 9,024 kept, reason counts identical to the earlier investigation. A pre-existing SyntaxWarning (invalid escape in a dataset code string parsed by ast) and a multiprocessing semaphore warning at exit were printed; neither affected output. Full download and the --take 160000 pull not run.
+
+### November 17, 2026 — train_torch.py review on the Mac
+
+The saved train_torch.py is identical to the November 16 version. Re-ran on the saved file (CPU, miniature two-layer model): 15 updates, loss 11.93 -> 11.37, checkpoints and final saved; resume from checkpoint-10 reproduced updates 11-15 and validation 11.3421; hand loss equals the model's own loss (11.26832). A check that different chunk sizes give equal gradients was killed (exit 137) because the single-chunk case held 64 rows' full-vocabulary scores in 16 GB; not rerun, at the user's request, because the Mac was slow. Scratch outputs deleted. Pinned Transformers 4.57.3 passes padded masks to SDPA (is_causal False), which rules out PyTorch's FlashAttention backend for padded chunks; kernel use on the H100 is unverified.
+
+### November 17, 2026: S2 curation run on the Mac
+
+Download: 50 files, 5,000,000 rows, 6.4 GB; domain generic 3,614,351 / algorithmic 1,385,649; average_test_score 1 for 1,641,305. Collect opencode --take 260000 (25 min 12 s): read about 3.08M rows; upstream failed test 2,069,515; judge below 5 738,532; non-stdlib import 9,258; open() 4,344; input() 100; too long 86; eval 28; exit 25; exec 5; kept 260,000. Collect selfoss (1 min 19 s): kept 41,713 of 50,661 (non-stdlib import 6,749; open() 1,925; eval 172; others small). Collect deepseek: 3,067 of 3,071 (4 non-stdlib imports). Docker verify, 8 workers: deepseek 3,067/3,067 (26 s); selfoss 41,181/41,713 (5 min 54 s); opencode 259,100/260,000 (67 min). Build `curate_build.py --name s2` with the benchmark check (5 min 19 s): too long opencode 1,288, selfoss 22; exact repeat opencode 4,467, deepseek 2; near repeat opencode 54,663, selfoss 6, deepseek 1; name cap opencode 103,387, selfoss 1,680; benchmark function name opencode 1,226, selfoss 165, deepseek 11; benchmark wording opencode 8, selfoss 16. Train 135,406 (opencode 93,104, selfoss 39,289, deepseek 3,013), validation 1,000. Train tokens 49,712,814, median 354. Three sampled near-repeat pairs were rewordings of the same task (for example two 'product of even numbers' prompts differing only in the empty-case return value).
+
+### November 17, 2026: full OpenCodeInstruct pull and 200K build
+
+Repeat check on the first 259,100 verified opencode rows: after exact repeats 226,613 rows, 47,653 distinct function names (is_prime 6,204; TreeNode 5,498; is_palindrome 3,842). Kept by cap: 30 -> 95,712; 100 -> 106,248; 300 -> 111,420; none -> 117,314. Near-repeat overlap bands (first 80K): 0.6 17,996; 0.7 12,278; 0.8 3,475; 0.9 737. Distinct rows by fraction of candidates: 25% 29,306; 50% 53,073; 75% 75,082; 100% 95,712. Full collect (66 min 33 s): upstream failed test 3,358,695; judge below 5 1,196,694; non-stdlib 14,989; open() 7,085; kept 422,147. First 260,000 ids identical to the earlier pull. Verify new rows: 420,682 / 422,147 total passed (35 min 38 s). Build s2-full (cap 30, 4 min 57 s): after repeats opencode 140,426, selfoss 39,180, deepseek 3,064; train 180,029; tokens 69,759,650, median 375. Simulated caps on all rows: 30 -> 183,409; 50 -> 192,261; 75 -> 198,440; 100 -> 202,212 after repeats. Build s2-200k (cap 100, 8 min 36 s): after repeats 201,372; after benchmark 198,374; train 197,374 (opencode 154,430, selfoss 39,910, deepseek 3,034), validation 1,000; tokens 77,138,780, median 378.

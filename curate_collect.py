@@ -206,6 +206,21 @@ def stream(source, seed, shuffle):
             raise RuntimeError(f"{DISTILLED} not found. Run the distill stages first.")
         yield from read_jsonl(DISTILLED)
         return
+    if source == "opencode":  # Read the copy from load_opencode.py if there is one.
+        import load_opencode
+
+        count = len(load_opencode.downloaded())
+        if count:
+            total = load_opencode.TOTAL_SHARDS
+            print(f"Reading {count} of {total} OpenCodeInstruct files from disk.")
+            if count < total:
+                print("Not all files are downloaded: run load_opencode.py first.")
+            rows = load_opencode.load()
+            if shuffle:  # A full shuffle: every row on disk is equally likely.
+                rows = rows.shuffle(seed=seed)
+            yield from rows
+            return
+        print("No local copy of OpenCodeInstruct; streaming it instead.")
     from datasets import load_dataset
 
     rows = load_dataset(dataset, config, split="train", streaming=True)

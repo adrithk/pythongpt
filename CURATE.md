@@ -1,11 +1,18 @@
 # Curating the S2 training set
 
-Written November 14, 2026. Three small scripts turn four sources into one
-training set of about 240K examples in the format `init_trainsft.py` loads.
+Written November 14, 2026. Three small scripts turn three sources into one
+training set of about 240K examples in the format `train_torch.py` loads.
+(November 17: `educational_instruct`, S1's data, was dropped by user decision;
+the OpenCodeInstruct quota went from 120,000 to 200,000.)
 
-Status: offline tests pass, and the collect and build steps were tried on a few
-hundred real rows on the Mac. **The Docker step has not been run for real, no
-full dataset has been pulled, and nothing has been trained on the result.**
+Status, November 17: the full pipeline ran on the Mac and built `data/s2-splits`
+(135,406 training rows, 1,000 validation rows, 49.7M training tokens; report in
+`data/curated/s2-report.json`). OpenCodeInstruct gave about 94K rows, not 200K:
+most of its candidates were repeats. Nothing has been trained on it yet.
+Later the same day all 5M OpenCodeInstruct rows were read (422,147 candidates)
+and two more sets were built: `data/s2-full-splits` (cap 30, 180,029 training
+rows) and `data/s2-200k-splits` (`--name-cap 100`, 197,374 training rows, 77.1M
+tokens). The default cap stays 30; pass `--name-cap N` to change it.
 
 ## The flow
 
@@ -29,8 +36,8 @@ Every row, from every source, has the same shape:
 
 ~~~json
 {
-  "id": "educational:660113403",
-  "source": "educational",
+  "id": "opencode:58193295bd590a8dc33b27c6b2846795",
+  "source": "opencode",
   "instruction": "Write a function to check if ...",
   "response": "def is_palindrome(s):\n    ...",
   "tests": ["assert is_palindrome(\"racecar\") == True"]
@@ -44,13 +51,16 @@ Every row, from every source, has the same shape:
 
 | Name | Dataset | Quota | Kept in a 400-row trial |
 | --- | --- | ---: | --- |
-| `opencode` | `nvidia/OpenCodeInstruct` (about 5M rows) | 120,000 | 52 of 400 |
-| `educational` | `OpenCoder-LLM/opc-sft-stage2`, `educational_instruct` | 50,000 | 399 of 400 |
+| `opencode` | `nvidia/OpenCodeInstruct` (about 5M rows) | 200,000 | 9,024 of 100,000 (first file) |
 | `selfoss` | `bigcode/self-oss-instruct-sc2-exec-filter-50k` | 40,000 | 348 of 400 |
-| `deepseek` | your `data/distill/accepted.jsonl` | 30,000 | not tried |
+| `deepseek` | your `data/distill/accepted.jsonl` | 30,000 (takes all 3,071) | all verified already |
 
-The trial read only the first 400 rows of each source, so treat those rates as
-a rough guide. Quotas are the `QUOTAS` dictionary at the top of
+`educational` (`OpenCoder-LLM/opc-sft-stage2`, `educational_instruct`) still has
+an adapter in `curate_collect.py`, but it is not in `QUOTAS`, so the build
+ignores it.
+
+The self-oss trial read only its first 400 rows, so treat that rate as a rough
+guide. Quotas are the `QUOTAS` dictionary at the top of
 `curate_build.py`. If a source has fewer good rows than its quota, the build
 takes what there is and the report shows the shortfall.
 
@@ -75,7 +85,7 @@ takes what there is and the report shows the shortfall.
 
 **Build**:
 
-- Formats each row exactly like `init_prepare.py` and drops rows over 1,024
+- Formats each row exactly like `initial/init_prepare.py` and drops rows over 1,024
   tokens.
 - Drops exact repeats (same instruction, or same code ignoring spacing).
 - Drops near repeats: same function name and mostly the same words.
@@ -87,8 +97,12 @@ takes what there is and the report shows the shortfall.
 
 ## Run it
 
-On the PC, with the `.venv` active. The benchmark check needs `evalplus`
-(`requirements-eval.txt`), which you already used for grading.
+On the Mac (or the PC), with the `.venv` active. Nothing is saved until you run
+these: `curate_collect.py` reads each source from Hugging Face over the network,
+except OpenCodeInstruct, which it reads from your disk once you have downloaded it.
+The benchmark check needs `evalplus` (`pip install -r requirements-eval.txt`);
+it is not yet installed in the Mac's `.venv`. On the PC, Docker needed
+`--docker "sudo docker"`; on the Mac leave that option off.
 
 Try a source first without saving anything:
 
@@ -96,20 +110,27 @@ Try a source first without saving anything:
 python curate_collect.py opencode --peek 400
 ~~~
 
-Pull each source. `--take` stops once that many rows have been kept; for
-OpenCodeInstruct that means reading well over a million rows, so it takes a
-while.
+Download OpenCodeInstruct once (50 files, about 6.9 GB, into `data/opencode-raw`;
+files already there are skipped, so you can stop and rerun):
 
 ~~~bash
-python curate_collect.py educational
+python load_opencode.py
 ~~~
+
+Only about 9% of its rows pass the filters, so `--take 260000` (the 200,000
+quota plus a cushion for rows the later steps drop) reads roughly 2.9 million
+rows. From disk that takes a few minutes and draws from all 5 million
+rows in a fully shuffled order; streaming (used only when no local files exist)
+would take much longer and mixes only 10,000 rows at a time.
+
+Pull each source. `--take` stops once that many rows have been kept.
 
 ~~~bash
 python curate_collect.py selfoss
 ~~~
 
 ~~~bash
-python curate_collect.py opencode --take 160000
+python curate_collect.py opencode --take 260000
 ~~~
 
 ~~~bash
@@ -119,10 +140,10 @@ python curate_collect.py deepseek
 Re-run the tests for each source (repeatable; it resumes where it stopped):
 
 ~~~bash
-python curate_verify.py educational --docker "sudo docker"
+python curate_verify.py opencode
 ~~~
 
-Repeat that command with `selfoss`, `opencode` and `deepseek`.
+Repeat that command with `selfoss` and `deepseek`.
 
 Build the set:
 
@@ -130,7 +151,7 @@ Build the set:
 python curate_build.py --name s2
 ~~~
 
-Then change one line at the top of `init_trainsft.py`:
+Then change one line at the top of `train_torch.py`:
 
 ~~~python
 DATA = "data/s2-splits"

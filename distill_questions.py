@@ -41,7 +41,7 @@ EFFORT = "low"  # Writing questions needs little reasoning; solving needs more.
 SIMILAR = 0.6  # Share of words in common above which two questions are repeats.
 
 # The mix, as weights. Change the numbers to change the dataset.
-FORMS = {"describe": 60, "complete": 25, "fix": 15}
+FORMS = {"describe": 30, "complete": 55, "fix": 15}
 LEVELS = {"easy": 35, "medium": 45, "hard": 20}
 
 FORM_HELP = {

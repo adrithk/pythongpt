@@ -1,7 +1,7 @@
 # Three-stage distillation
 
-Written November 14, 2026. This replaces `deepseek_distill.py` as the way to
-build the DeepSeek training set. The old collector and `deepseek_pipeline.py`
+Written November 14, 2026. This replaces `initial/deepseek_distill.py` as the way to
+build the DeepSeek training set. The old collector and `initial/deepseek_pipeline.py`
 are untouched and still work.
 
 Status: all offline tests pass. **No paid API call and no real Docker run has
@@ -50,8 +50,8 @@ Asking a model to "be diverse" gives repeats, so the mix is set in Python, in
   the next skill, so all skills are used before any repeats.
 - **Form.** Each question is assigned one of three forms by weight
   (`FORMS` at the top of the file):
-  - `describe` (60%): a plain request, "Write a function ...".
-  - `complete` (25%): a signature and docstring to finish. This is the shape
+  - `describe` (30%): a plain request, "Write a function ...".
+  - `complete` (55%): a signature and docstring to finish. This is the shape
     your HumanEval+ benchmark prompt uses.
   - `fix` (15%): a buggy function to correct.
 - **Difficulty.** easy 35%, medium 45%, hard 20% (`LEVELS`).
@@ -101,7 +101,7 @@ Limits you should know:
   sample by hand.
 - The repeat check compares words. It does not catch the same problem told
   with different words.
-- There is no benchmark-overlap audit here. `deepseek_pipeline.py` has one
+- There is no benchmark-overlap audit here. `initial/deepseek_pipeline.py` has one
   (`--exclude-jsonl`).
 
 ## Setup
@@ -207,7 +207,7 @@ Everything is under `data/distill/` unless you pass `--output`.
 `accepted.jsonl` is not yet in Qwen training format. `curate_build.py` does
 that step (see [CURATE.md](CURATE.md)): `instruction` becomes the user prompt,
 and `response` plus the end marker becomes the completion, as in
-`init_prepare.py`. It drops rows over 1,024 tokens, the current trainer cap.
+`initial/init_prepare.py`. It drops rows over 1,024 tokens, the current trainer cap.
 
 ## Offline tests
 
