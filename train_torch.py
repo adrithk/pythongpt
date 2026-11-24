@@ -15,7 +15,9 @@ BASE = "models/qwen-base"
 OUTPUT = Path("runs/sft-torch")
 MAX_LENGTH = 1024  # Prompt + completion tokens; longer rows are dropped.
 EPOCHS = 3
-LEARNING_RATE = 5e-5  # The peak value, reached after WARMUP_STEPS updates.
+# The peak value, reached after WARMUP_STEPS updates. OpenCoder used 5e-5 at
+# batch 512; 2e-5 is about that scaled by sqrt(64 / 512) for AdamW.
+LEARNING_RATE = 2e-5
 WARMUP_STEPS = 100
 EFFECTIVE_BATCH = 64  # Rows per weight update.
 MAX_TOKENS = 16_000  # Most padded tokens on the GPU at once (rows x longest row).
@@ -24,11 +26,17 @@ SAVE_EVERY = 500  # Updates between validation checks and saves.
 SEED = 42
 RESUME = None  # A checkpoint folder, for example "runs/sft-torch/checkpoint-2500".
 LIMIT = None  # A small number such as 200 to try the script on a few rows.
+MAX_SKIPPED = 20  # Updates with NaN/infinite gradients allowed before stopping.
 
 # ---- Device: the rented GPU if there is one, otherwise the Mac
 if torch.cuda.is_available():
     device = "cuda"
     print("GPU:", torch.cuda.get_device_name(0))
+    # PyTorch's cuDNN attention kernel returned NaN gradients for some padded
+    # chunks on an H100 (Nov 24, 2026: 5 of the first 324 updates, at both
+    # LR 5e-5 and 2e-5). The other attention kernels gave finite gradients on
+    # the same chunks, so turn cuDNN attention off.
+    torch.backends.cuda.enable_cudnn_sdp(False)
 elif torch.backends.mps.is_available():
     device = "mps"
 else:
@@ -198,6 +206,8 @@ if device == "cuda":
 newest_checkpoint = Path(RESUME) if RESUME else None
 started = time.time()
 running_loss = 0.0
+biggest_grad = 0.0  # Largest gradient size since the last printed line.
+skipped = 0
 
 for step in range(first_step, total_steps):
     # Set this update's learning rate.
@@ -219,15 +229,23 @@ for step in range(first_step, total_steps):
     # Stop before touching the weights if anything went wrong.
     if not math.isfinite(loss_value):
         raise FloatingPointError(f"Loss became NaN or infinity at update {step + 1}.")
-    torch.nn.utils.clip_grad_norm_(
-        model.parameters(), max_norm=1.0, error_if_nonfinite=True
-    )
-
-    # Apply the gradients, then clear them for the next update.
-    optimizer.step()
-    optimizer.zero_grad(set_to_none=True)
+    # clip_grad_norm_ returns the gradients' total size before clipping.
+    grad_size = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0).item()
 
     done = step + 1
+    if math.isfinite(grad_size):
+        # Apply the gradients.
+        optimizer.step()
+        biggest_grad = max(biggest_grad, grad_size)
+    else:
+        # A NaN or infinite gradient would ruin the weights: skip this update
+        # (its 64 rows are lost), and stop if it keeps happening.
+        skipped += 1
+        log({"update": f"{done}/{total_steps}", "skipped": "NaN/inf gradients"})
+        if skipped > MAX_SKIPPED:
+            raise FloatingPointError(f"{skipped} updates had broken gradients.")
+    optimizer.zero_grad(set_to_none=True)  # Clear them for the next update.
+
     running_loss += loss_value
     if done % LOG_EVERY == 0 or done == total_steps:
         count = (done - 1) % LOG_EVERY + 1  # Updates since the last printed line.
@@ -236,10 +254,13 @@ for step in range(first_step, total_steps):
                 "update": f"{done}/{total_steps}",
                 "loss": round(running_loss / count, 4),
                 "lr": f"{learning_rate:.2e}",
+                "grad": round(biggest_grad, 2),
+                "skipped": skipped,
                 "minutes": round((time.time() - started) / 60, 1),
             }
         )
         running_loss = 0.0
+        biggest_grad = 0.0
 
     if done % SAVE_EVERY == 0 and done < total_steps:
         log(
