@@ -230,11 +230,61 @@ def pytest_to_tests(source):
     return [f"{head}{ast.unparse(test)}\n{test.name}()" for test in tests]
 
 
+# About 1 in 5 KodCode questions has its pytest file pasted after the stub.
+# A line starting with one of these marks where the test code begins.
+KODCODE_TEST_START = re.compile(
+    r"^(from solution import|import solution|import pytest|import unittest"
+    r"|from pytest|from unittest|@pytest|def test|class Test)"
+)
+KODCODE_IMPORT = re.compile(r"^(import \w|from [\w.]+ import )")
+KODCODE_STUB = re.compile(r"^(def|class|async def) ")
+# Test code that cannot be cut off cleanly (inside the docstring, or bare asserts).
+KODCODE_LEFT_TESTS = re.compile(
+    r"from solution import|^\s*def test|^assert ", re.MULTILINE
+)
+
+
+def strip_kodcode_tests(question):
+    """Cut a KodCode question where pasted test code begins.
+
+    Also drops the blank lines, comments ("# Unit tests") and imports just
+    above the tests, which belong to the test file, not the stub. Questions
+    with test code that cannot be cut off are rejected.
+    """
+    lines = [
+        line
+        for line in question.split("\n")
+        if line.strip() not in ("import pytest", "import unittest")
+    ]
+    first_def = next(
+        (i for i, line in enumerate(lines) if KODCODE_STUB.match(line)), len(lines)
+    )
+    cut = next(
+        (
+            i
+            for i in range(first_def + 1, len(lines))
+            if KODCODE_TEST_START.match(lines[i])
+        ),
+        len(lines),
+    )
+    while cut > first_def + 1 and (
+        not lines[cut - 1].strip()
+        or lines[cut - 1].startswith("#")
+        or KODCODE_IMPORT.match(lines[cut - 1])
+    ):
+        cut -= 1
+    stub = "\n".join(lines[:cut]).lstrip("\n").rstrip() + "\n"
+    if KODCODE_LEFT_TESTS.search(stub):
+        raise ValueError("tests left in the question")
+    return stub
+
+
 def from_kodcode(row):
     if row["style"] != "complete":
         raise ValueError("not a complete-style question")
     tests = pytest_to_tests(row["test"])
-    return row["question_id"], KODCODE_PREFIX + row["question"], row["solution"], tests
+    question = strip_kodcode_tests(row["question"])
+    return row["question_id"], KODCODE_PREFIX + question, row["solution"], tests
 
 
 # name -> (Hugging Face dataset, configuration, adapter)

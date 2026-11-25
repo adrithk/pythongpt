@@ -178,6 +178,35 @@ class CollectTest(unittest.TestCase):
             with self.assertRaises(ValueError, msg=changes):
                 c.from_kodcode({**raw, **changes})
 
+    def test_kodcode_questions_lose_pasted_tests(self):
+        stub = 'from typing import List\n\ndef double(x: int) -> int:\n    """ Twice x. """\n    pass\n'
+        tails = [
+            "\n\nfrom solution import double\n\ndef test_a():\n    assert double(2) == 4\n",
+            "\n# Unit tests\ndef test_a():\n    assert double(2) == 4\n",
+            "\nfrom typing import List\nimport pytest\n\ndef test_a():\n    assert double(2) == 4\n",
+            "\nclass TestDouble:\n    def test_a(self):\n        assert double(2) == 4\n",
+        ]
+        for tail in tails:
+            self.assertEqual(c.strip_kodcode_tests(stub + tail), stub, msg=tail)
+        self.assertEqual(c.strip_kodcode_tests(stub), stub)  # Nothing to cut.
+        self.assertEqual(c.strip_kodcode_tests("import pytest\n\n" + stub), stub)
+        made = c.from_kodcode(
+            {
+                "style": "complete",
+                "question_id": "Leetcode_2",
+                "question": stub + tails[0],
+                "solution": "def double(x):\n    return 2 * x",
+                "test": "def test_a():\n    assert double(2) == 4\n",
+            }
+        )
+        self.assertNotIn("assert", made[1])
+        for leftover in [
+            '    """\n    Unit Tests:\n    from solution import double\n    """\n',
+            "\n# Tests\nassert double(2) == 4\n",
+        ]:
+            with self.assertRaises(ValueError, msg=leftover):
+                c.strip_kodcode_tests(stub.replace("    pass\n", leftover))
+
     def test_opencode_edge_case_minimum(self):
         def judged(edge, logic):
             return json.dumps(

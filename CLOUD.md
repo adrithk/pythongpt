@@ -194,3 +194,35 @@ MBPP+, HumanEval+ and validation-set answers into `runs/benchmarks/`. Copy that
 folder back, destroy the instance, then grade on the Mac: EvalPlus folders with
 the Docker command in INFERENCE.md (`grade_humaneval.py` reads the data set name
 from metadata.json), validation folders with `python grade_validation.py <folder>`.
+
+## GRPO rental (train_grpo.py)
+
+Reinforcement learning from S3, scored by running each answer's tests. Build
+the tasks on the Mac first (`python grpo_pool.py`, which writes `data/grpo/`),
+commit and push train_grpo.py, then rent one H100 (about 60 GB disk is enough).
+After cloning and installing requirements, copy up the model and the tasks:
+
+~~~bash
+rsync -avP -e "ssh -p PORT" runs/sft-s3/final root@HOST:/workspace/pythongpt/runs/sft-s3/
+~~~
+
+~~~bash
+rsync -avP -e "ssh -p PORT" data/grpo root@HOST:/workspace/pythongpt/data/
+~~~
+
+Rented machines are containers without Docker, so on the GPU machine set
+`SANDBOX = "local"` in train_grpo.py (answers then run as plain processes in a
+temporary folder with 1 GB of memory and a time limit; acceptable only on a
+throwaway machine), and optionally `TEST_WORKERS = 8`. Then inside tmux:
+
+~~~bash
+python train_grpo.py 2>&1 | tee grpo.log
+~~~
+
+Watch the first few step lines: `seconds a+b+c` is generation + tests + update
+time, `mixed` is how many of the 16 tasks gave the update something to learn
+from, `dev_pass_rate` is the held-out score (step 0 = S3 before training).
+Copy `runs/grpo` back, destroy the instance, then benchmark `runs/grpo/final`
+and the checkpoints with the usual HumanEval+/MBPP+ commands. Step time on an
+H100 has not been measured yet; time the first steps before deciding how long
+to rent.
