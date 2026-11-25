@@ -168,3 +168,29 @@ need to be about 2.7 times as fast to save money on training time. Check
 the actual offers with the desired disk allocation. The S2 trainer's
 throughput and memory use on these GPUs have yet to be measured.
 [Vast pricing documentation](https://docs.vast.ai/guides/instances/pricing)
+
+## Benchmark-only rental
+
+For measuring models, not training: about 30 minutes of an H100, 50 GB disk.
+After cloning (no data set or base model needed), copy up the model and the
+validation rows from the Mac:
+
+~~~bash
+rsync -avP -e "ssh -p PORT" runs/sft-torch/checkpoint-6000 root@HOST:/workspace/pythongpt/runs/sft-torch/
+~~~
+
+~~~bash
+rsync -avP -e "ssh -p PORT" data/curated/s2-200k-dev.jsonl root@HOST:/workspace/pythongpt/data/curated/
+~~~
+
+Then on the GPU machine, inside tmux:
+
+~~~bash
+./run_benchmarks.sh 2>&1 | tee bench.log
+~~~
+
+It downloads Qwen2.5-Coder-0.5B-Instruct as a reference and generates
+MBPP+, HumanEval+ and validation-set answers into `runs/benchmarks/`. Copy that
+folder back, destroy the instance, then grade on the Mac: EvalPlus folders with
+the Docker command in INFERENCE.md (`grade_humaneval.py` reads the data set name
+from metadata.json), validation folders with `python grade_validation.py <folder>`.

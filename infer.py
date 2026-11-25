@@ -11,11 +11,21 @@ from transformers import (
 )
 
 
+def pick_device():
+    """An NVIDIA/AMD GPU if there is one, otherwise the Mac's GPU (for small tests)."""
+    if torch.cuda.is_available():
+        return "cuda"
+    if torch.backends.mps.is_available():
+        return "mps"
+    raise RuntimeError("GPU unavailable. Check your environment and ROCm exports.")
+
+
+def device_name(device):
+    return torch.cuda.get_device_name(0) if device == "cuda" else "Apple MPS"
+
+
 def load_model(model_path):
-    if not torch.cuda.is_available():
-        raise RuntimeError(
-            "GPU unavailable. Check your environment and ROCm exports."
-        )
+    device = pick_device()
     model_path = Path(model_path)
 
     if not (model_path / "config.json").is_file():
@@ -39,9 +49,9 @@ def load_model(model_path):
             )
 
     print("Saved weights are finite.")
-    print("GPU:", torch.cuda.get_device_name(0))
+    print("GPU:", device_name(device))
 
-    model = model.to("cuda")
+    model = model.to(device)
     model.eval()
 
     return tokenizer, model
@@ -51,19 +61,26 @@ def load_model(model_path):
 def generate(tokenizer, model, instruction, max_new_tokens=512):
     prompt = tokenizer.apply_chat_template(
         [{"role": "user", "content": instruction}],
-        tokenize=False, add_generation_prompt=True,
+        tokenize=False,
+        add_generation_prompt=True,
     )
     inputs = tokenizer(prompt, add_special_tokens=False, return_tensors="pt")
     inputs = inputs.to(model.device)
-    stop_ids = [tokenizer.convert_tokens_to_ids(t) for t in ("<|im_end|>", "<|endoftext|>")]
+    stop_ids = [
+        tokenizer.convert_tokens_to_ids(t) for t in ("<|im_end|>", "<|endoftext|>")
+    ]
     if any(t is None or t == tokenizer.unk_token_id for t in stop_ids):
         raise ValueError("Expected Qwen stop tokens were not found.")
     settings = GenerationConfig(
-        do_sample=False, num_beams=1, max_new_tokens=max_new_tokens,
-        eos_token_id=stop_ids, pad_token_id=stop_ids[0], use_cache=True,
+        do_sample=False,
+        num_beams=1,
+        max_new_tokens=max_new_tokens,
+        eos_token_id=stop_ids,
+        pad_token_id=stop_ids[0],
+        use_cache=True,
     )
     output = model.generate(**inputs, generation_config=settings)
-    new_ids = output[0, inputs.input_ids.shape[1]:]
+    new_ids = output[0, inputs.input_ids.shape[1] :]
     text = tokenizer.decode(new_ids, skip_special_tokens=True)
     hit_limit = len(new_ids) == max_new_tokens and new_ids[-1].item() not in stop_ids
     return text, bool(hit_limit)
@@ -79,7 +96,9 @@ def main():
     log.mkdir(parents=True, exist_ok=True)
     log = log / (datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ") + ".jsonl")
     print("Answers are saved to", log)
-    print("Enter one problem per line, or type /quit. Each prompt starts a fresh conversation.")
+    print(
+        "Enter one problem per line, or type /quit. Each prompt starts a fresh conversation."
+    )
     while True:
         if args.prompt_file:
             instruction = args.prompt_file.read_text(encoding="utf-8")
@@ -97,8 +116,17 @@ def main():
         if hit_limit:
             print("[Reached the output-token limit; this answer may be incomplete.]")
         with log.open("a", encoding="utf-8") as f:
-            f.write(json.dumps({"model": args.model, "prompt": instruction,
-                                "answer": answer, "hit_limit": hit_limit}) + "\n")
+            f.write(
+                json.dumps(
+                    {
+                        "model": args.model,
+                        "prompt": instruction,
+                        "answer": answer,
+                        "hit_limit": hit_limit,
+                    }
+                )
+                + "\n"
+            )
         if args.prompt_file:
             break
 

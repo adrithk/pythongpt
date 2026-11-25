@@ -10,11 +10,15 @@ from datasets import load_from_disk
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 # ---- Settings
-DATA = "data/s2-200k-splits"  # S2 mix: OpenCodeInstruct, self-oss, DeepSeek.
-BASE = "models/qwen-base"
-OUTPUT = Path("runs/sft-torch")
+# S3 (option B): new KodCode and loosened-filter OpenCodeInstruct rows plus a
+# 15% replay of S2, continuing from S2's best checkpoint. S2 used
+# DATA "data/s2-200k-splits", BASE "models/qwen-base", OUTPUT runs/sft-torch,
+# EPOCHS 3 (git 2423a06).
+DATA = "data/s3-splits"
+BASE = "runs/sft-torch/checkpoint-6000"
+OUTPUT = Path("runs/sft-s3")
 MAX_LENGTH = 1024  # Prompt + completion tokens; longer rows are dropped.
-EPOCHS = 3
+EPOCHS = 2  # S2's third epoch raised validation loss.
 # The peak value, reached after WARMUP_STEPS updates. OpenCoder used 5e-5 at
 # batch 512; 2e-5 is about that scaled by sqrt(64 / 512) for AdamW.
 LEARNING_RATE = 2e-5

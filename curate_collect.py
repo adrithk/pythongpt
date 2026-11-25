@@ -24,6 +24,10 @@ DISTILLED = ROOT / "data" / "distill" / "accepted.jsonl"
 MAX_CHARS = 6000  # Rough early limit; the exact token limit is applied in step 3.
 MAX_TESTS = 20
 MIN_JUDGE = 5  # OpenCodeInstruct: every judge score must be at least this (max 5).
+# The edge-case criterion is the harsh one (most 4s read as nitpicks). Its
+# minimum can be lowered with --min-edge-score; the default keeps it at 5.
+EDGE_CASE = "edge_case_consideration"
+min_edge_score = MIN_JUDGE
 # Standard-library modules that reach outside the function: files, network,
 # processes, the clock, randomness. Code that imports them is out of scope.
 BLOCKED_MODULES = {
@@ -159,11 +163,13 @@ def from_opencode(row):
     if float(row["average_test_score"]) != 1.0:
         raise ValueError("a recorded test failed upstream")
     judgement = parse_structure(row["llm_judgement"])
-    scores = [item.get("score") for item in judgement.values()]
-    if not scores or any(
-        type(score) is not int or score < MIN_JUDGE for score in scores
-    ):
+    if not judgement:
         raise ValueError("judge score below the minimum")
+    for name, item in judgement.items():
+        score = item.get("score")
+        lowest = min_edge_score if name == EDGE_CASE else MIN_JUDGE
+        if type(score) is not int or score < lowest:
+            raise ValueError("judge score below the minimum")
     tests = parse_structure(row["unit_tests"])
     return row["id"], row["input"], first_code_block(row["output"]), tests
 
@@ -185,6 +191,52 @@ def from_deepseek(row):
     return row["id"], row["instruction"], row["response"], row["tests"]
 
 
+# KodCode "complete" questions are a function signature plus a docstring with
+# examples: the HumanEval shape. They get the same instruction sentence that
+# benchmark_humaneval.py puts before a HumanEval stub (the prompt format only,
+# no benchmark content).
+KODCODE_PREFIX = (
+    "Implement the following Python function. "
+    "Keep its name and signature. "
+    "Return the complete Python code, "
+    "including any needed imports.\n\n"
+)
+KODCODE = ROOT / "data" / "kodcode-raw"
+KODCODE_REVISION = "97d81f0695ddd7c5c02bfe16436db9a17a4a21e5"
+
+
+def pytest_to_tests(source):
+    """Turn a pytest file into stand-alone test programs, one per test function.
+
+    Each program repeats the file's other top-level lines (imports, helpers),
+    defines one test function and calls it. Files that need pytest itself
+    (fixtures, decorators, pytest.raises) are rejected.
+    """
+    if "pytest" in source or "solution." in source:
+        raise ValueError("tests need pytest features")
+    preamble, tests = [], []
+    for node in parse_python(source).body:
+        if isinstance(node, ast.ImportFrom) and node.module == "solution":
+            continue
+        if isinstance(node, ast.FunctionDef) and node.name.startswith("test"):
+            if node.args.args or node.decorator_list:
+                raise ValueError("tests need pytest features")
+            tests.append(node)
+        else:
+            preamble.append(node)
+    if not tests:
+        raise ValueError("no tests")
+    head = "".join(ast.unparse(node) + "\n" for node in preamble)
+    return [f"{head}{ast.unparse(test)}\n{test.name}()" for test in tests]
+
+
+def from_kodcode(row):
+    if row["style"] != "complete":
+        raise ValueError("not a complete-style question")
+    tests = pytest_to_tests(row["test"])
+    return row["question_id"], KODCODE_PREFIX + row["question"], row["solution"], tests
+
+
 # name -> (Hugging Face dataset, configuration, adapter)
 SOURCES = {
     "opencode": ("nvidia/OpenCodeInstruct", None, from_opencode),
@@ -195,6 +247,8 @@ SOURCES = {
     ),
     "selfoss": ("bigcode/self-oss-instruct-sc2-exec-filter-50k", None, from_selfoss),
     "deepseek": (None, None, from_deepseek),
+    # CC BY-NC 4.0 (non-commercial use only). Downloaded once to KODCODE.
+    "kodcode": ("KodCode/KodCode-V1", None, from_kodcode),
 }
 
 
@@ -222,6 +276,23 @@ def stream(source, seed, shuffle):
             return
         print("No local copy of OpenCodeInstruct; streaming it instead.")
     from datasets import load_dataset
+
+    if source == "kodcode":  # Small enough (2.6 GB) to keep a pinned local copy.
+        from huggingface_hub import snapshot_download
+
+        snapshot_download(
+            dataset,
+            repo_type="dataset",
+            revision=KODCODE_REVISION,
+            local_dir=KODCODE,
+            allow_patterns=["data/train-*.parquet", "README.md"],
+        )
+        files = sorted(str(path) for path in (KODCODE / "data").glob("train-*.parquet"))
+        rows = load_dataset("parquet", data_files=files, split="train")
+        if shuffle:
+            rows = rows.shuffle(seed=seed)
+        yield from rows
+        return
 
     rows = load_dataset(dataset, config, split="train", streaming=True)
     if shuffle:  # Mixes the order so a partial pull is not just the first rows.
@@ -259,7 +330,16 @@ def main(argv=None):
     )
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--output", type=Path, default=OUTPUT)
+    parser.add_argument(
+        "--min-edge-score",
+        type=int,
+        default=MIN_JUDGE,
+        help=f"OpenCodeInstruct: lowest accepted edge-case judge score "
+        f"(default {MIN_JUDGE}; the other judge scores must still be {MIN_JUDGE})",
+    )
     args = parser.parse_args(argv)
+    global min_edge_score
+    min_edge_score = args.min_edge_score
     try:
         if args.peek:
             raw = (

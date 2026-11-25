@@ -148,6 +148,57 @@ class CollectTest(unittest.TestCase):
             with self.assertRaises(ValueError, msg=changes):
                 c.from_opencode(self.opencode_row(**changes))
 
+    def test_kodcode_rows(self):
+        raw = {
+            "style": "complete",
+            "question_id": "Leetcode_1",
+            "question": 'def double(x: int) -> int:\n    """ Return twice x.\n    >>> double(2)\n    4\n    """\n',
+            "solution": "def double(x):\n    # Twice x.\n    return 2 * x\n\nprint(double(2))",
+            "test": "from solution import double\nimport math\n\n"
+            "def test_small():\n    assert double(2) == 4\n\n"
+            "def test_zero():\n    assert double(0) == 0\n",
+        }
+        made = c.make_row("kodcode", *c.from_kodcode(raw))
+        self.assertTrue(made["instruction"].startswith("Implement the following"))
+        self.assertEqual(
+            made["response"], "def double(x):\n    # Twice x.\n    return 2 * x"
+        )
+        self.assertEqual(len(made["tests"]), 2)
+        space = {}
+        exec(made["response"], space)  # noqa: S102 (trusted fixture)
+        for test in made["tests"]:
+            self.assertIn("import math", test)
+            exec(test, dict(space))  # noqa: S102 (trusted fixture: defines, calls a test)
+        for changes in [
+            {"style": "instruct"},
+            {"test": "import pytest\n\ndef test_a():\n    assert True\n"},
+            {"test": "def test_a(tmp_path):\n    assert tmp_path\n"},
+            {"test": "from solution import double\n"},
+        ]:
+            with self.assertRaises(ValueError, msg=changes):
+                c.from_kodcode({**raw, **changes})
+
+    def test_opencode_edge_case_minimum(self):
+        def judged(edge, logic):
+            return json.dumps(
+                {
+                    "requirement_conformance": {"score": 5},
+                    "logical_correctness": {"score": logic},
+                    "edge_case_consideration": {"score": edge},
+                }
+            )
+
+        edge4 = self.opencode_row(llm_judgement=judged(4, 5))
+        logic4 = self.opencode_row(llm_judgement=judged(5, 4))
+        with self.assertRaises(ValueError):  # Default: edge case must be 5.
+            c.from_opencode(edge4)
+        with mock.patch.object(c, "min_edge_score", 4):
+            c.from_opencode(edge4)  # Loosened: edge case 4 is accepted...
+            with self.assertRaises(ValueError):  # ...but other scores stay at 5.
+                c.from_opencode(logic4)
+            with self.assertRaises(ValueError):
+                c.from_opencode(self.opencode_row(llm_judgement=judged(3, 5)))
+
     def test_opencode_reads_local_copy(self):
         import datasets.config
         import pyarrow as pa
@@ -381,6 +432,36 @@ class BuildTest(unittest.TestCase):
 
         with self.assertRaises(RuntimeError):  # Never overwrites an existing set.
             quietly(b.build, self.args)
+
+    def test_build_continuing_from_a_previous_set(self):
+        # First set: 20 opencode rows.
+        first = [row("opencode", n) for n in range(20)]
+        write_jsonl(self.out / "verified" / "opencode.jsonl", first)
+        quietly(b.build, self.args)
+        old_train = read_jsonl(self.out / "t-train.jsonl")
+        old_dev = read_jsonl(self.out / "t-dev.jsonl")
+
+        # Second set: the same 20 rows, 10 new rows, and one new row that
+        # repeats an old row's code.
+        new = [row("opencode", n) for n in range(100, 110)]
+        repeat = dict(row("opencode", 200), response=first[3]["response"])
+        write_jsonl(self.out / "verified" / "opencode.jsonl", first + new + [repeat])
+        args = SimpleNamespace(
+            **vars(self.args), previous=str(self.out / "t"), replay=0.2
+        )
+        args.name = "t2"
+        quietly(b.build, args)
+
+        train = read_jsonl(self.out / "t2-train.jsonl")
+        dev = read_jsonl(self.out / "t2-dev.jsonl")
+        new_ids = {r["id"] for r in new}
+        old_train_ids = {r["id"] for r in old_train}
+        self.assertEqual([r["id"] for r in dev], [r["id"] for r in old_dev])
+        self.assertEqual({r["id"] for r in train} & new_ids, new_ids)
+        self.assertNotIn(repeat["id"], {r["id"] for r in train})
+        replayed = [r for r in train if r["id"] in old_train_ids]
+        self.assertEqual(len(replayed), 2)  # 20% of the 10 new rows.
+        self.assertFalse({r["id"] for r in dev} & {r["id"] for r in train})
 
     def test_skipping_the_benchmark_check_is_recorded(self):
         write_jsonl(

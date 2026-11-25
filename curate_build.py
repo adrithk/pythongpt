@@ -29,6 +29,9 @@ MAX_LENGTH = 1024  # Prompt + completion tokens. Must match the trainer.
 # November 17, 2026; its collector adapter is kept but the build ignores it.
 QUOTAS = {
     "deepseek": 30_000,  # Takes all accepted rows (3,071 so far).
+    # KodCode complete-style (signature + docstring) rows, added November 24,
+    # 2026 because S2 trailed most on that HumanEval shape. Not in S2.
+    "kodcode": 120_000,
     "opencode": 200_000,
     "selfoss": 40_000,
 }
@@ -150,12 +153,25 @@ def build(args):
     def record(stage, current):
         stages[stage] = dict(Counter(row["source"] for row in current))
 
+    # Continuing from a model trained on an earlier set: its rows go first, so
+    # they win every repeat check and new rows that repeat them are dropped.
+    previous_ids = set()
+    if getattr(args, "previous", None):
+        for part in ("dev", "train"):
+            path = Path(f"{args.previous}-{part}.jsonl")
+            if not path.exists():
+                raise RuntimeError(f"{path} not found (from --previous).")
+            loaded = read_jsonl(path)
+            for row in loaded:
+                row["previous"] = part
+                previous_ids.add(row["id"])
+            rows.extend(loaded)
     for source in QUOTAS:
         path = args.output / "verified" / f"{source}.jsonl"
         if not path.exists():
             print(f"Note: no verified rows for {source}; it is left out.")
             continue
-        loaded = read_jsonl(path)
+        loaded = [row for row in read_jsonl(path) if row["id"] not in previous_ids]
         rng.shuffle(loaded)
         rows.extend(loaded)
     if not rows:
@@ -186,17 +202,29 @@ def build(args):
         audit = f"run against {len(benchmarks)} tasks"
     record("after benchmark check", rows)
 
+    new_rows = [row for row in rows if "previous" not in row]
     chosen = []
     for source, quota in QUOTAS.items():
-        available = [row for row in rows if row["source"] == source]
+        available = [row for row in new_rows if row["source"] == source]
         chosen.extend(rng.sample(available, min(quota, len(available))))
-    rng.shuffle(chosen)
-    tested = [row for row in chosen if row["tests"]]
-    dev_ids = {
-        row["id"] for row in rng.sample(tested, min(DEV_ROWS, len(tested) // 10))
-    }
-    train = [row for row in chosen if row["id"] not in dev_ids]
-    dev = [row for row in chosen if row["id"] in dev_ids]
+    if previous_ids:
+        # Train on the new rows plus a replay slice of the earlier training
+        # rows; keep the earlier validation rows as validation, so the two
+        # runs' validation losses are comparable.
+        old = [row for row in rows if row.get("previous") == "train"]
+        replay = rng.sample(old, min(len(old), round(args.replay * len(chosen))))
+        dev = [row for row in rows if row.get("previous") == "dev"]
+        train = chosen + replay
+        rng.shuffle(train)
+        record("replayed", replay)
+    else:
+        rng.shuffle(chosen)
+        tested = [row for row in chosen if row["tests"]]
+        dev_ids = {
+            row["id"] for row in rng.sample(tested, min(DEV_ROWS, len(tested) // 10))
+        }
+        train = [row for row in chosen if row["id"] not in dev_ids]
+        dev = [row for row in chosen if row["id"] in dev_ids]
     record("train", train)
     record("dev", dev)
 
@@ -216,6 +244,8 @@ def build(args):
         "rows_per_source_at_each_step": stages,
         "quotas": QUOTAS,
         "name_cap": name_cap,
+        "previous": getattr(args, "previous", None),
+        "replay": getattr(args, "replay", None) if previous_ids else None,
         "removed": dict(sorted(reasons.items())),
         "benchmark_check": audit,
         "train_tokens_total": sum(lengths),
@@ -245,6 +275,19 @@ def main(argv=None):
         type=int,
         default=NAME_CAP,
         help=f"Most rows that may define one function name (default {NAME_CAP})",
+    )
+    parser.add_argument(
+        "--previous",
+        help="Earlier set to continue from, as a path prefix such as "
+        "data/curated/s2-200k: its rows are excluded from the new training "
+        "rows (except a replay slice) and its validation rows are reused",
+    )
+    parser.add_argument(
+        "--replay",
+        type=float,
+        default=0.15,
+        help="With --previous: earlier training rows to mix back in, as a "
+        "fraction of the new rows (default 0.15)",
     )
     args = parser.parse_args(argv)
     try:

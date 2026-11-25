@@ -534,3 +534,43 @@ HumanEval+ generation on the H100 (benchmark_humaneval.py, fp32, greedy, 512 new
 | S2 checkpoint-6000 (2 epochs) | 36.6 | 34.1 | 60 / 56 | 0 |
 
 HumanEval+ per task: final and checkpoint-6000 both pass 47; 8 only by final, 9 only by checkpoint-6000 (difference within noise). S2 final answers: 0 empty, 0 syntax errors. B0 under the chat prompt is not comparable with Qwen's published completion-mode base figure (28.0 / 23.8); 88 of its answers ran to the token limit. Copied to the Mac: runs/sft-torch/final, checkpoint-6000 (weights only), log.jsonl, all three run logs, bench.log; runs/benchmarks/{s2-final,s2-ckpt6000,b0}. Other checkpoints were not copied. Instance destroyed via the Vast console at the user's request; Vast credit went from USD 25.00 to 15.48 (about USD 9.52 for the whole session including both failed runs and the diagnosis).
+
+### November 24, 2026 — S2 vs Qwen 0.5B Instruct on more benchmarks; KodCode added
+
+Benchmark rental: 1x H100 SXM 80 GB, India, USD 2.188/hr (storage USD 0.028/hr while stopped); code copied with rsync (uncommitted scripts), checkpoint-6000 uploaded at about 1.5 MB/s (22 min; sha256 prefix c15dc4e2e3943a8b matched). Qwen/Qwen2.5-Coder-0.5B-Instruct revision ea3f2471cf1b1f0db85067f1ef93848e38e88c25. Generation fp32 greedy 512 tokens; EvalPlus graded on the Mac (ganler/evalplus:latest, evalplus 0.4.0.dev2; MBPP+ hash ee43ecabebf20deef4bb776a405ac5b1 matches evalplus 0.3.1); validation graded with grade_validation.py (python:3.12-slim runner from curation). Instance **stopped, not destroyed** (user's choice), with checkpoint-6000 and libraries on its disk.
+
+| Model | HumanEval / HE+ | MBPP / MBPP+ | S2 validation pass rate (1,000 tested rows) |
+| --- | --- | --- | --- |
+| S2 checkpoint-6000 | 36.6 / 34.1 | **55.3 / 48.7** | **47.2%** (8 hit limit) |
+| Qwen 0.5B Instruct | **59.8 / 54.9** | 52.9 / 43.9 | 21.7% (282 hit the 512-token limit; format-mismatched, not a fair skill comparison) |
+
+S2 beats Qwen Instruct on MBPP+ (+4.8) but trails by 20.8 on HumanEval+. HumanEval+ per task: both 47, Qwen only 43, S2 only 9, neither 65. Of Qwen-only: 5 missing imports, 1 base-pass/plus-fail, 37 wrong logic on base tests. Hand-read examples: S2 ignores docstring details with terse shortcuts (`string.count` for overlapping counts, `int('three')`, `n.bit_length() - 1` for largest divisor, `sorted(l, key=x % 3)` for sort_third); median answer 6 lines vs Qwen 21 with step comments. S2 training answers: opencode 19% contain `#` comments, 100% docstrings, median 22 lines; deepseek 0% comments, median 10 lines (its prompt forbids restating comments); stub-shaped prompts come almost only from the ~1.7K DeepSeek complete-form rows. Interpretation (hypothesis): the weakness is the signature+docstring (HumanEval) shape, not general skill.
+
+KodCode/KodCode-V1 (CC BY-NC 4.0, revision 97d81f0695ddd7c5c02bfe16436db9a17a4a21e5, 2.6 GB Parquet): style instruct 276,224 / complete 111,054; difficulty easy 218,024 / medium 94,893 / hard 74,361 (dataset-viewer statistics). Complete rows are a typed signature plus docstring with >>> examples; GPT-4o solutions with short step comments, without type hints; pytest test files. Added curate_collect.py `kodcode` source (complete style only, HumanEval instruction sentence prepended, pytest files turned into one program per test function, pytest features rejected) and curate_build.py quota kodcode 120,000 (listed second, after deepseek). curate_build.py also gained `--previous <prefix>` and `--replay` (default 0.15) for option B. 36 tests pass.
+
+### November 24, 2026 — S3 data built (option B)
+
+Verification: edge-4 OpenCodeInstruct 989,258 of 993,470 pass (new rows only tested, 2 h 41 min, 8 workers); KodCode complete-style 133,341 of 135,374 pass (1 h 24 min, 4 workers, separate folder data/curated-kodcode because of the per-folder writer lock, then copied into data/curated-edge4/verified). KodCode collection: 135,374 kept of 484,097 rows (not complete-style 316,778; pytest features 20,274; non-stdlib import 10,020).
+
+Build `curate_build.py --name s3 --output data/curated-edge4 --previous data/curated/s2-200k --replay 0.15 --name-cap 100` (with benchmark check, 15 min 57 s). After repeats (S2 rows first): opencode 305,273, kodcode 85,457, selfoss 40,104, deepseek 3,064. Removed: opencode name cap 434,548 / near repeat 224,108 / exact 20,894 / benchmark name 2,916; kodcode near repeat 28,406 / name cap 15,527 / too long 3,674 / benchmark name 1,582. New rows: kodcode 83,875 and opencode 146,931 (selfoss and deepseek had nothing new). Replay 34,621 S2 rows (opencode 27,052, selfoss 7,054, deepseek 515). **data/s3-splits: train 265,427 rows, 118,093,074 tokens (median 413); test = S2's same 1,000 validation rows** (checked identical, none in train). 2 epochs at batch 64 is about 8,295 updates, about 236M training tokens (S2: 231M). train_torch.py set to DATA data/s3-splits, BASE runs/sft-torch/checkpoint-6000, OUTPUT runs/sft-s3, EPOCHS 2. Not trained yet.
+
+### November 24-25, 2026 — S3 training on Vast (Virginia)
+
+The stopped India instance could not restart (its GPU was rented by someone else; console stuck at "Scheduling..."). Rented a new 1x H100 NVL 94 GB, Virginia (instance 62472512, machine 108616, USD 3.463/hr, 80 GB disk, 97.8-98.3% reliability; PyTorch template, torch 2.14.1+cu130, driver 580.178.04, Transformers 4.57.3). Uploaded the code (git-tracked plus untracked files), data/s3-splits and runs/sft-torch/checkpoint-6000 (weights only, no optimizer state) by rsync in about 10 min. Started `PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True python train_torch.py` in tmux at 06:19 UTC Nov 25 (instance clock). Measured: 265,427 train / 1,000 validation rows, 8,296 updates, biggest-chunk peak 57.5 GB, first 40 updates 0.75 s each (about 1 h 45 min projected), loss 0.25 -> 0.22-0.24 during warmup, grad 1.6-2.9, 0 skipped. The India instance (62428782) is still stopped, charging storage.
+
+Result (November 25): finished in 101.8 min, 0 skipped updates, final training loss about 0.14. Validation loss by update: 500 0.2227, 1000 0.2226, 2000 0.2177, 3000 0.2121, **4000 0.2059 (best, end of epoch 1 at about update 4,148)**, 4500 0.2162, 5000 0.2155, 6000 0.2123, 7000 0.2114, 8000 0.2106, final 0.2105. Benchmarked checkpoint-4000 and final on the instance (benchmark_humaneval.py humaneval and mbpp, benchmark_validation.py, two models in parallel), graded on the Mac (ganler/evalplus:latest under amd64 emulation; grade_validation.py):
+
+| Model | HumanEval / HE+ | MBPP / MBPP+ | Validation pass rate | hit 512 limit (HE/MBPP/val) |
+| --- | --- | --- | --- | --- |
+| S2 checkpoint-6000 | 36.6 / 34.1 | 55.3 / 48.7 | 47.2% | 0 / ? / 8 |
+| S3 checkpoint-4000 | 48.2 / 45.7 | 58.2 / 49.5 | 47.3% | — / 3 total in log / 13 |
+| **S3 final** | **53.7 / 50.6** | **60.3 / 51.1** | **49.0%** | 3 total in log / 6 |
+| Qwen 0.5B Instruct | 59.8 / 54.9 | 52.9 / 43.9 | 21.7% (format-mismatched) | |
+
+Incident: the two parallel runs both downloaded HumanEvalPlus.jsonl.gz at the same moment; checkpoint-4000's run read it mid-download and generated 0 tasks (empty samples.jsonl, kept as runs/benchmarks/s3-ckpt4000-empty-race). Its HumanEval answers were regenerated on the Mac (MPS, fp32); a check first regenerated 20 tasks of S3 final on the Mac and all 20 matched the H100 answers exactly. Avoid this next time by downloading the datasets once before starting parallel runs.
+
+HE+ per task, S3 final vs Qwen Instruct: both 66, S3 only 17, Qwen only 24, neither 57. Vs S2 checkpoint-6000: gained 36, lost 9. Median answer 13 lines (S2 7); 29 of 164 answers contain comments (S2 2). Example HumanEval/18 (overlapping substring count): S2 `string.count(substring)` (wrong), S3 a find loop advancing one character (right). Interpretation: KodCode's signature+docstring rows closed most of the HumanEval gap; the lowest validation loss did not pick the best benchmark checkpoint (epoch 2 raised validation loss but improved every executed benchmark).
+
+Copied to the Mac: runs/sft-s3/final, checkpoint-4000 (weights), log.jsonl, logs/{train.log, bench4000.log, benchfinal.log}; runs/benchmarks/s3-*. Instance 62472512 stopped from the console (storage USD 0.53/day; the other 15 checkpoints remain only on its disk). Vast credit USD 13.26 -> 4.94 (about USD 8.3 for rental, upload, training and benchmarks).
+
+November 25: at the user's request both instances were destroyed from the Vast console (Virginia 62472512, then India 62428782); console shows no instances, credit USD 4.75. The other 15 S3 checkpoints existed only on the Virginia disk and are gone.
