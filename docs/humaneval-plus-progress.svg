@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 340" width="720" height="340" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif" role="img" aria-labelledby="title desc">
+  <title id="title">HumanEval+ pass@1 by training stage</title>
+  <desc id="desc">S1 28.0, S2 34.1, S3 50.6, S3 plus GRPO 54.3. Official Qwen2.5-Coder-0.5B-Instruct scores 54.9 under the same protocol.</desc>
+  <style>
+    .surface { fill: #fcfcfb; }
+    .grid { stroke: #e4e3df; stroke-width: 1; }
+    .base { stroke: #8b8a85; stroke-width: 1; }
+    .bar { fill: #2a78d6; }
+    .ref { stroke: #52514e; stroke-width: 1.5; stroke-dasharray: 6 4; }
+    .primary { fill: #0b0b0b; }
+    .secondary { fill: #52514e; }
+    .muted { fill: #8b8a85; }
+    @media (prefers-color-scheme: dark) {
+      .surface { fill: #1a1a19; }
+      .grid { stroke: #33332f; }
+      .base { stroke: #7a7972; }
+      .bar { fill: #3987e5; }
+      .ref { stroke: #c3c2b7; }
+      .primary { fill: #f0efec; }
+      .secondary { fill: #c3c2b7; }
+      .muted { fill: #8e8d86; }
+    }
+  </style>
+  <rect class="surface" x="0" y="0" width="720" height="340" rx="8"/>
+
+  <text class="primary" x="24" y="32" font-size="15" font-weight="600">HumanEval+ pass@1 (%), Qwen2.5-Coder-0.5B base → post-trained</text>
+
+  <!-- grid: 0, 20, 40, 60 -->
+  <line class="grid" x1="70" y1="60" x2="690" y2="60"/>
+  <line class="grid" x1="70" y1="133.3" x2="690" y2="133.3"/>
+  <line class="grid" x1="70" y1="206.7" x2="690" y2="206.7"/>
+  <line class="base" x1="70" y1="280" x2="690" y2="280"/>
+  <text class="muted" x="60" y="64" font-size="11" text-anchor="end">60</text>
+  <text class="muted" x="60" y="137.3" font-size="11" text-anchor="end">40</text>
+  <text class="muted" x="60" y="210.7" font-size="11" text-anchor="end">20</text>
+  <text class="muted" x="60" y="284" font-size="11" text-anchor="end">0</text>
+
+  <!-- bars: 4px rounded top, square at baseline -->
+  <path class="bar" d="M135.5,280 V181.3 Q135.5,177.3 139.5,177.3 H155.5 Q159.5,177.3 159.5,181.3 V280 Z"/>
+  <path class="bar" d="M290.5,280 V159 Q290.5,155 294.5,155 H310.5 Q314.5,155 314.5,159 V280 Z"/>
+  <path class="bar" d="M445.5,280 V98.5 Q445.5,94.5 449.5,94.5 H465.5 Q469.5,94.5 469.5,98.5 V280 Z"/>
+  <path class="bar" d="M600.5,280 V84.9 Q600.5,80.9 604.5,80.9 H620.5 Q624.5,80.9 624.5,84.9 V280 Z"/>
+
+  <!-- reference: official Qwen 0.5B Instruct, same protocol -->
+  <line class="ref" x1="70" y1="78.7" x2="690" y2="78.7"/>
+  <text class="secondary" x="74" y="72" font-size="11.5">Qwen2.5-Coder-0.5B-Instruct (official): 54.9</text>
+
+  <!-- value labels -->
+  <text class="primary" x="129.5" y="189" font-size="12.5" font-weight="600" text-anchor="end">28.0</text>
+  <text class="primary" x="284.5" y="167" font-size="12.5" font-weight="600" text-anchor="end">34.1</text>
+  <text class="primary" x="439.5" y="106" font-size="12.5" font-weight="600" text-anchor="end">50.6</text>
+  <text class="primary" x="594.5" y="93" font-size="12.5" font-weight="600" text-anchor="end">54.3</text>
+
+  <!-- category labels -->
+  <text class="primary" x="147.5" y="302" font-size="12.5" font-weight="600" text-anchor="middle">S1</text>
+  <text class="secondary" x="147.5" y="318" font-size="11" text-anchor="middle">first SFT, 117K rows</text>
+  <text class="primary" x="302.5" y="302" font-size="12.5" font-weight="600" text-anchor="middle">S2</text>
+  <text class="secondary" x="302.5" y="318" font-size="11" text-anchor="middle">curated SFT, 197K rows</text>
+  <text class="primary" x="457.5" y="302" font-size="12.5" font-weight="600" text-anchor="middle">S3</text>
+  <text class="secondary" x="457.5" y="318" font-size="11" text-anchor="middle">+ KodCode, continued SFT</text>
+  <text class="primary" x="612.5" y="302" font-size="12.5" font-weight="600" text-anchor="middle">S3 + GRPO</text>
+  <text class="secondary" x="612.5" y="318" font-size="11" text-anchor="middle">execution-reward RL</text>
+</svg>

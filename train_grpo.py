@@ -294,77 +294,78 @@ def log(record):
 
 
 # ---- Training
-OUTPUT.mkdir(parents=True, exist_ok=True)
-model.train()
-if not RESUME:
-    log({"step": 0, "dev_pass_rate": dev_pass_rate()})  # The starting point.
+if __name__ == "__main__":  # Importing this file (grpo_filter.py) skips training.
+    OUTPUT.mkdir(parents=True, exist_ok=True)
+    model.train()
+    if not RESUME:
+        log({"step": 0, "dev_pass_rate": dev_pass_rate()})  # The starting point.
 
-newest_checkpoint = Path(RESUME) if RESUME else None
-skipped = 0
-for step in range(first_step, STEPS):
-    started = time.time()
-    learning_rate = LEARNING_RATE * min(1.0, (step + 1) / WARMUP_STEPS)
-    for group in optimizer.param_groups:
-        group["lr"] = learning_rate
+    newest_checkpoint = Path(RESUME) if RESUME else None
+    skipped = 0
+    for step in range(first_step, STEPS):
+        started = time.time()
+        learning_rate = LEARNING_RATE * min(1.0, (step + 1) / WARMUP_STEPS)
+        for group in optimizer.param_groups:
+            group["lr"] = learning_rate
 
-    torch.manual_seed(SEED * 100_000 + step)  # Same samples if resumed.
-    answers = generate(plan[step], GROUP, sample=True)
-    generated = time.time()
-    rewards = rewards_for(answers)
-    tested = time.time()
-    advantages = advantages_for(rewards)
+        torch.manual_seed(SEED * 100_000 + step)  # Same samples if resumed.
+        answers = generate(plan[step], GROUP, sample=True)
+        generated = time.time()
+        rewards = rewards_for(answers)
+        tested = time.time()
+        advantages = advantages_for(rewards)
 
-    examples = [
-        {
-            "input_ids": a["prompt_ids"] + a["answer_ids"],
-            "labels": [-100] * len(a["prompt_ids"]) + a["answer_ids"],
-            "advantage": advantage,
-        }
-        for a, advantage in zip(answers, advantages)
-        if advantage != 0  # Groups that all passed or all failed teach nothing.
-    ]
-    grad_size = 0.0
-    if examples:
-        # Divide by all answer tokens in the update: every token counts the
-        # same, however the answers were chunked.
-        graded = sum(len(e["input_ids"]) - e["labels"].count(-100) for e in examples)
-        for chunk in make_chunks(examples):
-            (chunk_loss(chunk) / graded).backward()
-        grad_size = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0).item()
-        if math.isfinite(grad_size):
-            optimizer.step()
-        else:
-            skipped += 1
-            if skipped > MAX_SKIPPED:
-                raise FloatingPointError(f"{skipped} updates had broken gradients.")
-        optimizer.zero_grad(set_to_none=True)
+        examples = [
+            {
+                "input_ids": a["prompt_ids"] + a["answer_ids"],
+                "labels": [-100] * len(a["prompt_ids"]) + a["answer_ids"],
+                "advantage": advantage,
+            }
+            for a, advantage in zip(answers, advantages)
+            if advantage != 0  # Groups that all passed or all failed teach nothing.
+        ]
+        grad_size = 0.0
+        if examples:
+            # Divide by all answer tokens in the update: every token counts the
+            # same, however the answers were chunked.
+            graded = sum(len(e["input_ids"]) - e["labels"].count(-100) for e in examples)
+            for chunk in make_chunks(examples):
+                (chunk_loss(chunk) / graded).backward()
+            grad_size = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0).item()
+            if math.isfinite(grad_size):
+                optimizer.step()
+            else:
+                skipped += 1
+                if skipped > MAX_SKIPPED:
+                    raise FloatingPointError(f"{skipped} updates had broken gradients.")
+            optimizer.zero_grad(set_to_none=True)
 
-    group_means = torch.tensor(rewards).view(-1, GROUP).mean(dim=1)
-    done = step + 1
-    log(
-        {
-            "step": f"{done}/{STEPS}",
-            "reward": round(sum(rewards) / len(rewards), 3),
-            "mixed": int(((group_means > 0) & (group_means < 1)).sum()),
-            "all_pass": int((group_means == 1).sum()),
-            "all_fail": int((group_means == 0).sum()),
-            "tokens": round(sum(len(a["answer_ids"]) for a in answers) / len(answers)),
-            "hit_limit": sum(a["hit_limit"] for a in answers),
-            "grad": round(grad_size, 3),
-            "skipped": skipped,
-            "lr": f"{learning_rate:.1e}",
-            "seconds": f"{generated - started:.0f}+{tested - generated:.0f}"
-            f"+{time.time() - tested:.0f}",
-        }
-    )
+        group_means = torch.tensor(rewards).view(-1, GROUP).mean(dim=1)
+        done = step + 1
+        log(
+            {
+                "step": f"{done}/{STEPS}",
+                "reward": round(sum(rewards) / len(rewards), 3),
+                "mixed": int(((group_means > 0) & (group_means < 1)).sum()),
+                "all_pass": int((group_means == 1).sum()),
+                "all_fail": int((group_means == 0).sum()),
+                "tokens": round(sum(len(a["answer_ids"]) for a in answers) / len(answers)),
+                "hit_limit": sum(a["hit_limit"] for a in answers),
+                "grad": round(grad_size, 3),
+                "skipped": skipped,
+                "lr": f"{learning_rate:.1e}",
+                "seconds": f"{generated - started:.0f}+{tested - generated:.0f}"
+                f"+{time.time() - tested:.0f}",
+            }
+        )
 
-    if done % SAVE_EVERY == 0 or done == STEPS:
-        log({"step": done, "dev_pass_rate": dev_pass_rate()})
-        folder = OUTPUT / (f"checkpoint-{done}" if done < STEPS else "final")
-        save(folder, step=done)
-        # Only the newest checkpoint keeps the large optimizer state.
-        if newest_checkpoint and newest_checkpoint != folder:
-            (newest_checkpoint / "training_state.pt").unlink(missing_ok=True)
-        newest_checkpoint = folder
+        if done % SAVE_EVERY == 0 or done == STEPS:
+            log({"step": done, "dev_pass_rate": dev_pass_rate()})
+            folder = OUTPUT / (f"checkpoint-{done}" if done < STEPS else "final")
+            save(folder, step=done)
+            # Only the newest checkpoint keeps the large optimizer state.
+            if newest_checkpoint and newest_checkpoint != folder:
+                (newest_checkpoint / "training_state.pt").unlink(missing_ok=True)
+            newest_checkpoint = folder
 
-print("Saved the trained model to", OUTPUT / "final")
+    print("Saved the trained model to", OUTPUT / "final")
